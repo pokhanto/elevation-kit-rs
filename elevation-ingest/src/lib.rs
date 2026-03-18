@@ -7,12 +7,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
 
-pub mod artifact_storage_fs;
-pub mod metadata_storage_fs;
-
-pub use artifact_storage_fs::FsArtifactStorage;
-pub use metadata_storage_fs::FsMetadataStorage;
-
 #[derive(Debug, Error)]
 pub enum MetadataReadError {
     #[error("failed to execute gdalinfo: {0}")]
@@ -61,6 +55,7 @@ struct Band {
     overviews: Option<Vec<serde_json::Value>>,
 }
 
+// TODO: rework to use gdal bindings
 pub fn read_raster_metadata(path: &Path) -> Result<RasterMetadata, MetadataReadError> {
     let output = Command::new("gdalinfo")
         .arg("-json")
