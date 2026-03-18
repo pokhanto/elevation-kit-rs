@@ -8,15 +8,17 @@ use std::path::PathBuf;
 struct Args {
     #[arg(long)]
     source: PathBuf,
+    #[arg(long)]
+    dataset_id: String,
 }
 
 fn main() {
     let args = Args::parse();
-    let source_path = args.source;
+    let Args { source, dataset_id } = args;
     let metadata_storage = FsMetadataStorage {};
     let artifact_storage = FsArtifactStorage {};
 
-    ingest(source_path, artifact_storage, metadata_storage);
+    ingest(dataset_id, source, artifact_storage, metadata_storage);
 
     let metadata_storage = FsMetadataStorage {};
     let raster_reader = GdalRasterReader;

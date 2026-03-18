@@ -123,22 +123,20 @@ fn parse_nodata(value: Option<&serde_json::Value>) -> Option<f64> {
 }
 
 pub fn ingest(
+    dataset_id: String,
     source_path: PathBuf,
     artifact_storage: impl ArtifactStorage,
     metadata_storage: impl MetadataStorage,
 ) {
-    let bytes = std::fs::read(&source_path).unwrap();
-    let artifact_path = artifact_storage.save_artifact(bytes);
+    let artifact_path = artifact_storage.save_artifact(&dataset_id, source_path.as_path());
     let raster_metadata = read_raster_metadata(&source_path)
         .map_err(|e| e.to_string())
         .unwrap();
     let metadata = DatasetMetadata {
-        dataset_id: String::from("1"),
-        dataset_name: String::from("1"),
-        version: String::from("1"),
+        dataset_id,
         artifact_path,
         raster: raster_metadata,
     };
 
-    metadata_storage.save_metadata(&metadata);
+    metadata_storage.save_metadata(metadata);
 }

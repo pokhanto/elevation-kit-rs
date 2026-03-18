@@ -5,5 +5,4 @@ members = [
   "elevation-types",
   "elevation-ingest",
   "elevation-main",
-  "elevation-metadata-fs",
 ]

@@ -1,25 +1,21 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 pub trait MetadataStorage {
-    fn save_metadata(&self, metadata: &DatasetMetadata);
+    fn save_metadata(&self, metadata: DatasetMetadata);
 
-    fn load_metadata(&self) -> DatasetMetadata;
+    fn load_metadata(&self) -> Vec<DatasetMetadata>;
 }
 
 pub trait ArtifactStorage {
-    fn save_artifact(&self, bytes: Vec<u8>) -> PathBuf;
-
-    fn load_artifact(&self);
+    fn save_artifact(&self, dataset_id: &str, source_path: &Path) -> String;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetMetadata {
     pub dataset_id: String,
-    pub dataset_name: String,
-    pub version: String,
-    pub artifact_path: PathBuf,
+    pub artifact_path: String,
     pub raster: RasterMetadata,
     // pub created_at: String,
 }

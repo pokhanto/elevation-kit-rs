@@ -1,15 +1,14 @@
-use std::path::Path;
-
 use gdal::Dataset;
 
 pub trait RasterReader {
-    fn read_pixel(&self, path: &Path, col: u32, row: u32) -> f64;
+    // TODO: fix path type
+    fn read_pixel(&self, path: &str, col: u32, row: u32) -> f64;
 }
 
 pub struct GdalRasterReader;
 
 impl RasterReader for GdalRasterReader {
-    fn read_pixel(&self, path: &Path, col: u32, row: u32) -> f64 {
+    fn read_pixel(&self, path: &str, col: u32, row: u32) -> f64 {
         // TODO: preload/cache dataset
         let dataset = Dataset::open(path).unwrap();
         let band = dataset.rasterband(1).unwrap();

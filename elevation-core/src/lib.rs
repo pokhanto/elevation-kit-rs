@@ -1,4 +1,5 @@
 use elevation_types::{DatasetMetadata, MetadataStorage};
+use tracing::{info, instrument};
 
 use crate::raster_reader::RasterReader;
 
@@ -54,21 +55,43 @@ where
     M: MetadataStorage,
     R: RasterReader,
 {
+    #[instrument(skip(self), fields(x = x, y = y))]
     pub fn elevation_at(&self, x: f64, y: f64) -> Option<f64> {
-        let dataset = self.metadata.load_metadata();
+        let datasets = self.metadata.load_metadata();
+        let dataset = get_metadata(datasets, x, y);
 
-        // if !contains(&dataset, request.x, request.y) {
-        //     return Ok(None);
-        // }
+        if let Some(dataset) = dataset {
+            info!(dataset_id = %dataset.dataset_id, "dataset selected");
 
-        let pixel = world_to_pixel(&dataset, x, y).unwrap();
+            let pixel = world_to_pixel(&dataset, x, y).unwrap();
 
-        let value = self
-            .raster
-            .read_pixel(&dataset.artifact_path, pixel.col, pixel.row);
+            info!(col = pixel.col, row = pixel.row, "pixel resolved");
 
-        // TODO: check nodata
+            let value = self
+                .raster
+                .read_pixel(&dataset.artifact_path, pixel.col, pixel.row);
 
-        Some(value)
+            // TODO: check nodata
+
+            return Some(value);
+        }
+
+        None
     }
+}
+
+// TODO: rename to more meaningful name
+fn get_metadata(datasets: Vec<DatasetMetadata>, x: f64, y: f64) -> Option<DatasetMetadata> {
+    let mut filtered: Vec<DatasetMetadata> = datasets
+        .into_iter()
+        .filter(|ds| {
+            x >= ds.raster.bounds.min_x
+                && x <= ds.raster.bounds.max_x
+                && y >= ds.raster.bounds.min_y
+                && y <= ds.raster.bounds.max_y
+        })
+        .collect();
+    // TODO: filter by quality too
+
+    filtered.pop()
 }

@@ -1,18 +1,13 @@
-use std::path::PathBuf;
-
 use elevation_types::ArtifactStorage;
+use std::path::Path;
 
 pub struct FsArtifactStorage {}
 
 impl ArtifactStorage for FsArtifactStorage {
-    fn save_artifact(&self, bytes: Vec<u8>) -> PathBuf {
-        let path: PathBuf = "./data/cog.tif".into();
-        std::fs::write(&path, &bytes).unwrap();
+    fn save_artifact(&self, _dataset_id: &str, path: &Path) -> String {
+        let storage_path = String::from("./data/cog.tif");
+        std::fs::copy(path, &storage_path).unwrap();
 
-        path
-    }
-
-    fn load_artifact(&self) {
-        todo!()
+        storage_path
     }
 }
