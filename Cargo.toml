@@ -5,6 +5,5 @@ members = [
   "elevation-types",
   "elevation-ingest",
   "elevation-cli",
-  "elevation-metadata-fs",
-  "elevation-storage-fs",
+  "elevation-adapters",
 ]

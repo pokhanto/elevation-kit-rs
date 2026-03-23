@@ -1,10 +1,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
+use elevation_adapters::{FsMetadataStorage, GdalRasterReader};
 use elevation_core::ElevationService;
-// TODO: import from root
-use elevation_core::raster_reader::GdalRasterReader;
-use elevation_metadata_fs::FsMetadataStorage;
 
 #[derive(Debug, Parser)]
 struct Args {

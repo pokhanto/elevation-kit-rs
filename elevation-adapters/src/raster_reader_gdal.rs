@@ -1,14 +1,10 @@
+use elevation_types::RasterReader;
 use gdal::Dataset;
-
-pub trait RasterReader {
-    // TODO: fix path type
-    fn read_pixel(&self, path: &str, col: u32, row: u32) -> f64;
-}
 
 pub struct GdalRasterReader;
 
 impl RasterReader for GdalRasterReader {
-    fn read_pixel(&self, path: &str, col: u32, row: u32) -> f64 {
+    fn read_pixel(&self, path: &str, col: usize, row: usize) -> f64 {
         // TODO: preload/cache dataset
         let dataset = Dataset::open(path).unwrap();
         let band = dataset.rasterband(1).unwrap();

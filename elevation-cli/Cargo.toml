@@ -5,8 +5,7 @@ edition = "2024"
 
 [dependencies]
 elevation-ingest = { path = "../elevation-ingest" }
-elevation-metadata-fs = { path = "../elevation-metadata-fs" }
-elevation-storage-fs = { path = "../elevation-storage-fs" }
+elevation-adapters = { path = "../elevation-adapters" }
 elevation-types = { path = "../elevation-types" }
 elevation-core = { path = "../elevation-core" }
 clap = { version = "4.6.0", features = ["derive"] }

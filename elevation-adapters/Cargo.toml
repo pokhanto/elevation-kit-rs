@@ -1,5 +1,5 @@
 [package]
-name = "elevation-metadata-fs"
+name = "elevation-adapters"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,3 +7,5 @@ edition = "2024"
 serde = { version = "1.0.228", features = ["derive"] }
 elevation-types = { path = "../elevation-types" }
 serde_json = "1.0.149"
+gdal = "0.19.0"
+tracing = "0.1.44"

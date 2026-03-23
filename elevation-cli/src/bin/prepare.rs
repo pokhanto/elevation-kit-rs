@@ -1,7 +1,6 @@
 use clap::Parser;
+use elevation_adapters::{FsArtifactStorage, FsMetadataStorage};
 use elevation_ingest::ingest;
-use elevation_metadata_fs::FsMetadataStorage;
-use elevation_storage_fs::FsArtifactStorage;
 use std::path::PathBuf;
 use tracing_subscriber::FmtSubscriber;
 
