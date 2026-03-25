@@ -1,9 +1,8 @@
-use elevation_types::{ArtifactStorage, ArtifactStorageError};
+use elevation_types::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
 use std::{
     fs,
     path::{Path, PathBuf},
 };
-use tracing::{debug, instrument};
 
 pub struct FsArtifactStorage {
     base_dir: PathBuf,
@@ -16,18 +15,34 @@ impl FsArtifactStorage {
 }
 
 impl ArtifactStorage for FsArtifactStorage {
-    #[instrument(skip(self), fields(dataset_id, source_path))]
+    #[tracing::instrument(skip(self), fields(dataset_id, source_path))]
     fn save_artifact(
         &self,
         dataset_id: &str,
         source_path: &Path,
-    ) -> Result<String, ArtifactStorageError> {
-        debug!("base directory {:?}", &self.base_dir);
-        fs::create_dir_all(&self.base_dir).unwrap();
-        let storage_path = Path::join(&self.base_dir, format!("{dataset_id}.tif"));
-        debug!("storage path composed {:?}", &storage_path);
-        fs::copy(source_path, &storage_path).unwrap();
+    ) -> Result<ArtifactLocator, ArtifactStorageError> {
+        tracing::debug!(base_dir = %self.base_dir.display(), "preparing artifact storage directory");
 
-        Ok(storage_path.to_string_lossy().into_owned())
+        fs::create_dir_all(&self.base_dir).map_err(|err| {
+            tracing::debug!(error = %err, base_dir = %self.base_dir.display(), "failed to create artifact storage directory");
+
+            ArtifactStorageError::PrepareStorage
+        })?;
+
+        let storage_path = self.base_dir.join(format!("{dataset_id}.tif"));
+        tracing::debug!(storage_path = %storage_path.display(), "artifact storage path composed");
+
+        fs::copy(source_path, &storage_path).map_err(|err| {
+            tracing::debug!(
+                error = %err,
+                source_path = %source_path.display(),
+                storage_path = %storage_path.display(),
+                "failed to copy artifact into storage"
+            );
+
+            ArtifactStorageError::Save
+        })?;
+
+        Ok(ArtifactLocator::from(storage_path))
     }
 }

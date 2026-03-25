@@ -28,5 +28,5 @@ fn main() {
     let metadata_storage = FsMetadataStorage::new(base_dir.to_owned());
     let artifact_storage = FsArtifactStorage::new(base_dir);
 
-    ingest(dataset_id, source, artifact_storage, metadata_storage);
+    ingest(dataset_id, source, artifact_storage, metadata_storage).expect("ingest failed");
 }

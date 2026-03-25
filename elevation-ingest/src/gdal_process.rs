@@ -20,8 +20,8 @@ pub enum GdalProcessError {
 fn get_millis() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
 }
 
 // TODO: move to constants or config

@@ -1,4 +1,4 @@
 mod gdal_process;
 
 mod ingest;
-pub use ingest::run as ingest;
+pub use ingest::{IngestError, run as ingest};
