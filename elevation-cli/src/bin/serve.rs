@@ -23,6 +23,8 @@ fn main() {
 
     let service = ElevationService::new(metadata_storage, raster_reader);
 
-    let elevation = service.elevation_at(x, y).expect("Can't get elevation");
+    let elevation = service
+        .elevation_at_point(x, y)
+        .expect("Can't get elevation");
     println!("elev {:?}", elevation);
 }

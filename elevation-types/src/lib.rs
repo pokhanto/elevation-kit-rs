@@ -18,6 +18,10 @@ pub enum MetadataStorageError {
 
     #[error("Metadata with Id already exists")]
     DuplicateId,
+
+    // TODO:: is it required to have
+    #[error("Unknown error")]
+    Other(String),
 }
 
 pub trait MetadataStorage {
@@ -87,22 +91,149 @@ impl std::fmt::Display for ArtifactLocator {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    column: usize,
+    row: usize,
+}
+
+impl Placement {
+    pub fn new(column: usize, row: usize) -> Self {
+        Self { column, row }
+    }
+
+    pub fn column(&self) -> usize {
+        self.column
+    }
+
+    pub fn row(&self) -> usize {
+        self.row
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Size {
+    width: usize,
+    height: usize,
+}
+
+impl Size {
+    pub fn new(width: usize, height: usize) -> Self {
+        Self { width, height }
+    }
+
+    pub fn point() -> Self {
+        Self {
+            width: 1,
+            height: 1,
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RasterReadWindow {
+    pub placement: Placement,
+    pub source_size: Size,
+    pub target_size: Size,
+}
+
+impl RasterReadWindow {
+    pub fn new(placement: Placement, source_size: Size, target_size: Size) -> Self {
+        Self {
+            placement,
+            source_size,
+            target_size,
+        }
+    }
+
+    pub fn new_point(placement: Placement) -> Self {
+        Self {
+            placement,
+            source_size: Size::point(),
+            target_size: Size::point(),
+        }
+    }
+}
+
+// TODO: maybe these types related only to service
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResampleTargetSize {
+    pub width: usize,
+    pub height: usize,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RasterWindowDataError {
+    #[error("values length does not match window dimensions")]
+    InvalidValuesLength,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct RasterWindowData<T> {
+    window: RasterReadWindow,
+    values: Vec<T>,
+}
+
+impl<T> RasterWindowData<T> {
+    pub fn new(
+        window: RasterReadWindow,
+        values: impl Into<Vec<T>>,
+    ) -> Result<Self, RasterWindowDataError> {
+        let values = values.into();
+        let target_size = window.target_size.width * window.target_size.height;
+        if values.len() != target_size {
+            return Err(RasterWindowDataError::InvalidValuesLength);
+        }
+
+        Ok(Self { window, values })
+    }
+
+    pub fn values(&self) -> &[T] {
+        &self.values
+    }
+
+    pub fn into_values(self) -> Vec<T> {
+        self.values
+    }
+
+    pub fn get(&self, col: usize, row: usize) -> Option<&T> {
+        if col >= self.window.target_size.width || row >= self.window.target_size.height {
+            return None;
+        }
+
+        self.values.get(row * self.window.target_size.width + col)
+    }
+
+    pub fn target_height(&self) -> usize {
+        self.window.target_size.height
+    }
+
+    pub fn target_width(&self) -> usize {
+        self.window.target_size.width
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RasterReaderError {
     #[error("Failed to open raster")]
     Open,
-
     #[error("Failed to read raster pixel")]
     Read,
 }
 
-pub trait RasterReader {
-    fn read_pixel(
+pub trait RasterReader<T> {
+    fn read_window(
         &self,
         locator: &ArtifactLocator,
-        col: usize,
-        row: usize,
-    ) -> Result<Elevation, RasterReaderError>;
+        raster_window: RasterReadWindow,
+    ) -> Result<RasterWindowData<T>, RasterReaderError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -125,12 +256,22 @@ impl Crs {
     }
 }
 
+#[derive(Debug)]
+pub enum ResolutionHint {
+    Highest,
+    Lowest,
+    Degrees {
+        lon_resolution: f64,
+        lat_resolution: f64,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetMetadata {
     pub dataset_id: String,
     pub artifact_path: ArtifactLocator,
     pub raster: RasterMetadata,
-    // pub created_at: String,
+    // TODO: creation date
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,7 +294,7 @@ pub struct GeoTransform {
     pub pixel_height: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Bounds {
     pub min_lon: f64,
     pub min_lat: f64,
@@ -161,8 +302,41 @@ pub struct Bounds {
     pub max_lat: f64,
 }
 
+impl Bounds {
+    pub fn intersection(&self, other: &Bounds) -> Option<Bounds> {
+        let min_lon = self.min_lon.max(other.min_lon);
+        let min_lat = self.min_lat.max(other.min_lat);
+        let max_lon = self.max_lon.min(other.max_lon);
+        let max_lat = self.max_lat.min(other.max_lat);
+
+        if min_lon <= max_lon && min_lat <= max_lat {
+            Some(Bounds {
+                min_lon,
+                min_lat,
+                max_lon,
+                max_lat,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn contains_point(&self, lon: f64, lat: f64) -> bool {
+        lon >= self.min_lon && lon <= self.max_lon && lat >= self.min_lat && lat <= self.max_lat
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockSize {
     pub width: usize,
     pub height: usize,
+}
+
+// TODO: rework
+#[derive(Debug, Clone, PartialEq)]
+pub struct BboxElevations {
+    pub bbox: Bounds,
+    pub width: usize,
+    pub height: usize,
+    pub values: Vec<Option<Elevation>>,
 }
