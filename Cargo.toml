@@ -4,7 +4,7 @@ members = [
   "elevation-core",
   "elevation-types",
   "elevation-ingest",
-  "elevation-cli",
+  "elevation-prepare-cli",
   "elevation-adapters",
   "elevation-profile-grpc",
   "elevation-tiles-http",
