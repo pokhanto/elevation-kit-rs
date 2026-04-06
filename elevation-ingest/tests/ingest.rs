@@ -1,6 +1,6 @@
 use elevation_adapters::{FsArtifactStorage, FsMetadataStorage};
 use elevation_ingest::ingest;
-use elevation_types::{Crs, MetadataStorage};
+use elevation_domain::{Crs, MetadataStorage};
 use std::path::PathBuf;
 use tempfile::tempdir;
 

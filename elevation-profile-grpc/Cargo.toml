@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 elevation-adapters = { path = "../elevation-adapters" }
-elevation-types = { path = "../elevation-types" }
+elevation-domain = { path = "../elevation-domain" }
 elevation-core = { path = "../elevation-core" }
 tokio = { version = "1.50.0", features = [
   "rt-multi-thread",

@@ -4,7 +4,7 @@
 //! reprojecting them, converting them to COG, extracting metadata,
 //! and storing artifacts and metadata.
 
-use elevation_types::{
+use elevation_domain::{
     ArtifactStorage, BlockSize, Bounds, Crs, DatasetMetadata, GeoTransform, MetadataStorage,
     RasterMetadata,
 };

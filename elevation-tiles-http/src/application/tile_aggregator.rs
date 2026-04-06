@@ -2,7 +2,7 @@
 //!
 //! This module computes aggregated elevation values for tiles.
 
-use elevation_types::Elevation;
+use elevation_domain::Elevation;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::domain::Tile;

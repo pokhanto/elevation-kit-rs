@@ -1,4 +1,4 @@
-use elevation_types::{
+use elevation_domain::{
     ArtifactLocator, RasterReadWindow, RasterReader, RasterReaderError, RasterWindowData,
 };
 use gdal::Dataset;
@@ -70,7 +70,7 @@ impl RasterReader<f64> for GdalRasterReader {
                     RasterReaderError::Read
                 })?;
 
-            RasterWindowData::new(raster_window, buffer.data()).map_err(|err| {
+            RasterWindowData::try_new(raster_window, buffer.data()).map_err(|err| {
                 tracing::debug!(
                     error = %err,
                     placement = ?placement,

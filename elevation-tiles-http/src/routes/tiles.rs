@@ -6,7 +6,7 @@ use axum::{
     response::sse::{Event, Sse},
     routing::get,
 };
-use elevation_types::Bounds;
+use elevation_domain::Bounds;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};

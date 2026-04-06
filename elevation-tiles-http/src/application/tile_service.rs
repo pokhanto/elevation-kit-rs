@@ -2,7 +2,7 @@
 //!
 //! This module maps tile requests to elevation lookups and caches computed tiles.
 
-use elevation_types::{Bounds, ResolutionHint};
+use elevation_domain::{Bounds, ResolutionHint};
 use geo::{BoundingRect, LineString};
 use h3o::{
     CellIndex, Resolution,
@@ -140,7 +140,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elevation_types::{BboxElevations, Bounds, Elevation, ResolutionHint};
+    use elevation_domain::{BboxElevations, Bounds, Elevation, ResolutionHint};
     use std::sync::{Arc, Mutex};
 
     use crate::application::elevation_provider::{ElevationProvider, ElevationProviderError};

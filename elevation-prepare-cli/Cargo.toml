@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 elevation-ingest = { path = "../elevation-ingest" }
 elevation-adapters = { path = "../elevation-adapters" }
-elevation-types = { path = "../elevation-types" }
+elevation-domain = { path = "../elevation-domain" }
 elevation-core = { path = "../elevation-core" }
 clap = { version = "4.6.0", features = ["derive"] }
 thiserror = "2.0.18"

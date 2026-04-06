@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 elevation-adapters = { path = "../elevation-adapters" }
-elevation-types = { path = "../elevation-types" }
+elevation-domain = { path = "../elevation-domain" }
 elevation-core = { path = "../elevation-core" }
 tokio = { version = "1.51.0", features = ["macros", "rt-multi-thread"] }
 axum = { version = "0.8.8" }

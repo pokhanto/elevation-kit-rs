@@ -1,4 +1,4 @@
-use elevation_types::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
+use elevation_domain::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 

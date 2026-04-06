@@ -1,7 +1,7 @@
 use clap::Parser;
 use elevation_adapters::{FsArtifactStorage, FsMetadataStorage};
 use elevation_ingest::ingest;
-use elevation_types::Crs;
+use elevation_domain::Crs;
 use std::path::PathBuf;
 
 mod telemetry;

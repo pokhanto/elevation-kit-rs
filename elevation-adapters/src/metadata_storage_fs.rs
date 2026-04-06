@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use elevation_types::{DatasetMetadata, MetadataStorage, MetadataStorageError};
+use elevation_domain::{DatasetMetadata, MetadataStorage, MetadataStorageError};
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs::{self, File, OpenOptions},

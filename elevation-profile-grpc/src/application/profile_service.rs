@@ -123,7 +123,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elevation_types::Elevation;
+    use elevation_domain::Elevation;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Debug)]

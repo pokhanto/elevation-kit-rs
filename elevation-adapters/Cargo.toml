@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
-elevation-types = { path = "../elevation-types" }
+elevation-domain = { path = "../elevation-domain" }
 serde_json = "1.0.149"
 gdal = "0.19.0"
 tracing = "0.1.44"

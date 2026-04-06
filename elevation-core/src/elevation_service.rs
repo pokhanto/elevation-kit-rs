@@ -1,6 +1,6 @@
-use elevation_types::{
+use elevation_domain::{
     BboxElevations, Bounds, DatasetMetadata, Elevation, MetadataStorage, Placement,
-    RasterReadWindow, RasterReader, ResolutionHint, Size,
+    RasterReadWindow, RasterReader, RasterSize, ResolutionHint,
 };
 
 // TODO: Add more error variants
@@ -506,11 +506,11 @@ fn create_raster_processing_plan(
     }
 
     let placement = Placement::new(source_start_col, source_start_row);
-    let source_size = Size::new(
+    let source_size = RasterSize::new(
         source_end_col_exclusive - source_start_col,
         source_end_row_exclusive - source_start_row,
     );
-    let target_size = Size::new(
+    let target_size = RasterSize::new(
         dst_end_col_exclusive - target_start_col,
         dst_end_row_exclusive - target_start_row,
     );
@@ -529,8 +529,8 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    use elevation_types::{
-        ArtifactLocator, BlockSize, Bounds, Crs, DatasetMetadata, MetadataStorage,
+    use elevation_domain::{
+        ArtifactLocator, BlockSize, Bounds, Crs, DatasetMetadata, GeoTransform, MetadataStorage,
         MetadataStorageError, RasterMetadata, RasterReader, RasterReaderError, RasterWindowData,
         ResolutionHint,
     };
@@ -553,7 +553,7 @@ mod tests {
         async fn save_metadata(
             &self,
             _metadata: DatasetMetadata,
-        ) -> Result<(), elevation_types::MetadataStorageError> {
+        ) -> Result<(), MetadataStorageError> {
             todo!()
         }
     }
@@ -626,7 +626,7 @@ mod tests {
                 width: ((bounds.max_lon - bounds.min_lon) / pixel_width.abs()).ceil() as usize,
                 height: ((bounds.max_lat - bounds.min_lat) / pixel_height.abs()).ceil() as usize,
                 nodata,
-                geo_transform: elevation_types::GeoTransform {
+                geo_transform: GeoTransform {
                     origin_lon: bounds.min_lon,
                     origin_lat: bounds.max_lat,
                     pixel_width,
@@ -646,7 +646,7 @@ mod tests {
         raster_read_window: RasterReadWindow,
         values: Vec<f64>,
     ) -> RasterWindowData<f64> {
-        RasterWindowData::new(raster_read_window, values).unwrap()
+        RasterWindowData::try_new(raster_read_window, values).unwrap()
     }
 
     fn bbox(min_lon: f64, min_lat: f64, max_lon: f64, max_lat: f64) -> Bounds {
@@ -704,8 +704,11 @@ mod tests {
             should_fail: false,
         };
 
-        let raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(2, 2), Size::new(2, 2));
+        let raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 2),
+        );
 
         let raster = FakeRasterReader {
             responses: vec![FakeRasterReaderData {
@@ -774,11 +777,17 @@ mod tests {
             should_fail: false,
         };
 
-        let left_raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(2, 2), Size::new(2, 2));
+        let left_raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 2),
+        );
 
-        let right_raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(2, 2), Size::new(2, 2));
+        let right_raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 2),
+        );
 
         let raster = FakeRasterReader {
             responses: vec![
@@ -846,11 +855,17 @@ mod tests {
             should_fail: false,
         };
 
-        let low_raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(2, 2), Size::new(2, 2));
+        let low_raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 2),
+        );
 
-        let high_raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(1, 1), Size::new(1, 1));
+        let high_raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(1, 1),
+            RasterSize::new(1, 1),
+        );
 
         let raster = FakeRasterReader {
             responses: vec![
@@ -914,11 +929,17 @@ mod tests {
             should_fail: false,
         };
 
-        let low_raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(2, 2), Size::new(2, 2));
+        let low_raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 2),
+        );
 
-        let high_raster_read_window =
-            RasterReadWindow::new(Placement::new(0, 0), Size::new(1, 1), Size::new(1, 1));
+        let high_raster_read_window = RasterReadWindow::new(
+            Placement::new(0, 0),
+            RasterSize::new(1, 1),
+            RasterSize::new(1, 1),
+        );
 
         let raster = FakeRasterReader {
             responses: vec![
@@ -977,10 +998,10 @@ mod tests {
         let placement = Placement::new(0, 0);
 
         let low_raster_read_window =
-            RasterReadWindow::new(placement, Size::new(2, 2), Size::new(4, 4));
+            RasterReadWindow::new(placement, RasterSize::new(2, 2), RasterSize::new(4, 4));
 
         let high_raster_read_window =
-            RasterReadWindow::new(placement, Size::new(4, 4), Size::new(4, 4));
+            RasterReadWindow::new(placement, RasterSize::new(4, 4), RasterSize::new(4, 4));
 
         let raster = FakeRasterReader {
             responses: vec![
@@ -1047,10 +1068,10 @@ mod tests {
         let placement = Placement::new(0, 0);
 
         let low_raster_read_window =
-            RasterReadWindow::new(placement, Size::new(2, 2), Size::new(2, 2));
+            RasterReadWindow::new(placement, RasterSize::new(2, 2), RasterSize::new(2, 2));
 
         let high_raster_read_window =
-            RasterReadWindow::new(placement, Size::new(4, 4), Size::new(2, 2));
+            RasterReadWindow::new(placement, RasterSize::new(4, 4), RasterSize::new(2, 2));
 
         let raster = FakeRasterReader {
             responses: vec![
@@ -1107,13 +1128,13 @@ mod tests {
         };
 
         let placement = Placement::new(3, 5);
-        let source_size = Size::new(1, 3);
-        let target_size = Size::new(1, 3);
+        let source_size = RasterSize::new(1, 3);
+        let target_size = RasterSize::new(1, 3);
         let left_raster_read_window = RasterReadWindow::new(placement, source_size, target_size);
 
         let placement = Placement::new(0, 2);
-        let source_size = Size::new(1, 2);
-        let target_size = Size::new(2, 3);
+        let source_size = RasterSize::new(1, 2);
+        let target_size = RasterSize::new(2, 3);
         let right_raster_read_window = RasterReadWindow::new(placement, source_size, target_size);
 
         let raster = FakeRasterReader {

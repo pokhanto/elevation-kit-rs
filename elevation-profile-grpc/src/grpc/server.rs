@@ -91,7 +91,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elevation_types::Elevation;
+    use elevation_domain::Elevation;
     use tokio_stream::StreamExt;
     use tonic::Code;
 

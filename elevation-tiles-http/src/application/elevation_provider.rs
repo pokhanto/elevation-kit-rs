@@ -1,10 +1,10 @@
 //! Abstraction for retrieving elevation data.
 //!
-//! The main purpose is to keep high level services testable by allowing
+//! Main purpose is to keep high level services testable by allowing
 //! other providers like fakes or mocks.
 use elevation_adapters::{FsMetadataStorage, GdalRasterReader};
 use elevation_core::{ElevationService, ElevationServiceError};
-use elevation_types::{BboxElevations, Bounds, ResolutionHint};
+use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
 
 /// Error returned by [`ElevationProvider`].
 ///
@@ -19,6 +19,9 @@ pub enum ElevationProviderError {
 /// Provides elevation values for bounding box.
 pub trait ElevationProvider {
     /// Returns elevations for given bounding box.
+    ///
+    /// For detailed behavior see
+    /// [`elevation_core::ElevationService::elevations_in_bbox`].
     fn elevations_in_bbox(
         &self,
         bbox: Bounds,
