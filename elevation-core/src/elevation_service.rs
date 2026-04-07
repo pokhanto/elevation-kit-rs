@@ -230,7 +230,6 @@ where
             ElevationServiceError::Metadata
         })?;
 
-        // TODO: consider separate type for intersection
         // get all intersections for all datasets with requested bbox
         let mut intersections: Vec<(DatasetMetadata, Bounds)> = datasets
             .into_iter()
@@ -523,7 +522,6 @@ fn create_raster_processing_plan(
     ))
 }
 
-// TODO:: check malformed bbox
 #[cfg(test)]
 mod tests {
     use super::*;

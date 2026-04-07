@@ -4,6 +4,38 @@
 
 It is part of `elevation-kit` and uses prepared artifacts and metadata.
 
+```mermaid
+flowchart TD
+    Client["Client<br/>browser / curl / frontend"]
+
+    subgraph HttpApp["elevation-tiles-http"]
+        Routes["Axum HTTP routes<br/>GET /tiles/{id}<br/>GET /tiles/stream"]
+        TileService["TileService<br/>H3 tile resolution<br/>tile cache<br/>mean elevation aggregation"]
+    end
+
+    subgraph Core["Core query layer"]
+        ElevationService["ElevationService<br/>bbox elevations"]
+    end
+
+    subgraph Adapters["Adapters"]
+        Metadata["FsMetadataStorage"]
+        Raster["GdalRasterReader"]
+    end
+
+    subgraph Data["Prepared data"]
+        Registry["registry.json"]
+        Artifact["prepared raster file<br/>GeoTIFF / COG"]
+    end
+
+    Client --> Routes
+    Routes --> TileService
+    TileService --> ElevationService
+    ElevationService --> Metadata
+    ElevationService --> Raster
+    Metadata --> Registry
+    Raster --> Artifact
+```
+
 ## What it does
 
 - resolves H3 tiles for requested area

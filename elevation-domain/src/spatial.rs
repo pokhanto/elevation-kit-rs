@@ -48,6 +48,7 @@ pub enum ResolutionHint {
     },
 }
 
+// TODO: add constructor to validate proper bounds
 /// Axis-aligned geographic bounds.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Bounds {
