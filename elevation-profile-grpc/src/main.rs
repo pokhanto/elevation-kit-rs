@@ -1,4 +1,4 @@
-use elevation_adapters::{FsMetadataStorage, GdalRasterReader};
+use elevation_adapters::{FsMetadataStorage, GdalRasterReader, GdalS3ArtifactResolver};
 use elevation_core::ElevationService;
 use elevation_profile_grpc::{
     Config, ProfileService,
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let metadata_storage =
         FsMetadataStorage::new(config.metadata_dir, config.metadata_registry_name);
-    let raster_reader = GdalRasterReader;
+    let raster_reader = GdalRasterReader::new(GdalS3ArtifactResolver);
     let elevation_service = ElevationService::new(metadata_storage, raster_reader);
 
     let profile_service = Arc::new(ProfileService::new(elevation_service, config.max_samples));
@@ -25,7 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
         .set_serving::<pb::elevation_server::ElevationServer<
-            ApiServer<ElevationService<FsMetadataStorage, GdalRasterReader>>,
+            ApiServer<
+                ElevationService<FsMetadataStorage, GdalRasterReader<GdalS3ArtifactResolver>>,
+            >,
         >>()
         .await;
 

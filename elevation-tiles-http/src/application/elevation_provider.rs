@@ -2,7 +2,7 @@
 //!
 //! Main purpose is to keep high level services testable by allowing
 //! other providers like fakes or mocks.
-use elevation_adapters::{FsMetadataStorage, GdalRasterReader};
+use elevation_adapters::{FsArtifactResolver, FsMetadataStorage, GdalRasterReader};
 use elevation_core::{ElevationService, ElevationServiceError};
 use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
 
@@ -31,7 +31,9 @@ pub trait ElevationProvider {
 
 /// Production [`ElevationProvider`] implementation backed by
 /// [`ElevationService<FsMetadataStorage, GdalRasterReader>`].
-impl ElevationProvider for ElevationService<FsMetadataStorage, GdalRasterReader> {
+impl ElevationProvider
+    for ElevationService<FsMetadataStorage, GdalRasterReader<FsArtifactResolver>>
+{
     async fn elevations_in_bbox(
         &self,
         bbox: Bounds,

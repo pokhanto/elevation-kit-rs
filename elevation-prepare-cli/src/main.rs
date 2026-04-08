@@ -1,5 +1,7 @@
-use clap::Parser;
-use elevation_adapters::{FsArtifactStorage, FsMetadataStorage};
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::Client;
+use clap::{Parser, ValueEnum};
+use elevation_adapters::{FsArtifactStorage, FsMetadataStorage, S3ArtifactStorage};
 use elevation_domain::Crs;
 use elevation_ingest::ingest;
 use std::path::PathBuf;
@@ -9,6 +11,12 @@ mod telemetry;
 // TODO: atm this is only supported CRS,
 // so every dataset will be translated to it
 const CRS: &str = "EPSG:4326";
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ArtifactBackend {
+    Fs,
+    S3,
+}
 
 /// Ingest source DEM dataset into artifact and metadata storage.
 #[derive(Debug, Parser)]
@@ -22,28 +30,36 @@ about ingested dataset in base directory.",
 )]
 struct Args {
     /// Path to source dataset file to ingest.
-    ///
-    /// This is typically source DEM or raster file that will be processed and stored
     #[arg(long, value_name = "FILE")]
     source_dataset_path: PathBuf,
 
-    /// Identifier for tdataset being ingested.
-    ///
-    /// This id is used to reference dataset later from application.
+    /// Identifier for dataset being ingested.
     #[arg(long, value_name = "DATASET_ID")]
     dataset_id: String,
 
     /// Base directory for metadata and generated artifacts.
     ///
-    /// Tool will use this directory for storage backends.
+    /// Used for local metadata storage and local filesystem artifact storage.
     #[arg(long, value_name = "DIR")]
     base_dir: PathBuf,
 
     /// Name of metadata storage file.
-    ///
-    /// This name will be used for metadata storage filesystem implementation
     #[arg(long, value_name = "REGISTRY_NAME")]
     registry_name: String,
+
+    /// Artifact storage backend.
+    #[arg(long, value_enum, default_value_t = ArtifactBackend::Fs)]
+    artifact_backend: ArtifactBackend,
+
+    /// S3 bucket for artifact storage.
+    ///
+    /// Required when --artifact-backend s3 is used.
+    #[arg(long, value_name = "BUCKET")]
+    s3_bucket: Option<String>,
+
+    /// Optional S3 key prefix for stored artifacts.
+    #[arg(long, value_name = "PREFIX")]
+    s3_prefix: Option<String>,
 }
 
 #[tokio::main]
@@ -52,24 +68,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = Args::parse();
 
-    let Args {
-        source_dataset_path,
-        dataset_id,
-        base_dir,
-        registry_name,
-    } = args;
+    let metadata_storage = FsMetadataStorage::new(args.base_dir.clone(), args.registry_name);
 
-    let metadata_storage = FsMetadataStorage::new(base_dir.to_owned(), registry_name);
-    let artifact_storage = FsArtifactStorage::new(base_dir);
+    match args.artifact_backend {
+        ArtifactBackend::Fs => {
+            let artifact_storage = FsArtifactStorage::new(args.base_dir);
 
-    ingest(
-        dataset_id,
-        source_dataset_path,
-        Crs::new(CRS),
-        artifact_storage,
-        metadata_storage,
-    )
-    .await?;
+            ingest(
+                args.dataset_id,
+                args.source_dataset_path,
+                Crs::new(CRS),
+                artifact_storage,
+                metadata_storage,
+            )
+            .await?;
+        }
+        ArtifactBackend::S3 => {
+            let bucket = args
+                .s3_bucket
+                .ok_or("--s3-bucket is required when --artifact-backend s3 is used")?;
+
+            let aws_config = aws_config::defaults(BehaviorVersion::latest()).load().await;
+            let s3_client = Client::new(&aws_config);
+
+            let artifact_storage = S3ArtifactStorage::new(s3_client, bucket, args.s3_prefix);
+
+            ingest(
+                args.dataset_id,
+                args.source_dataset_path,
+                Crs::new(CRS),
+                artifact_storage,
+                metadata_storage,
+            )
+            .await?;
+        }
+    }
 
     Ok(())
 }

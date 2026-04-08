@@ -1,7 +1,8 @@
 //! GDAL-backed raster reader.
 
 use elevation_domain::{
-    ArtifactLocator, RasterReadWindow, RasterReader, RasterReaderError, RasterWindowData,
+    ArtifactLocator, ArtifactResolver, RasterReadWindow, RasterReader, RasterReaderError,
+    RasterWindowData,
 };
 use gdal::Dataset;
 
@@ -9,9 +10,20 @@ const RASTER_BAND_INDEX_WITH_DATA: usize = 1;
 
 /// Reads raster windows from artifacts using GDAL.
 #[derive(Debug, Clone)]
-pub struct GdalRasterReader;
+pub struct GdalRasterReader<AR> {
+    artifact_resolver: AR,
+}
 
-impl RasterReader<f64> for GdalRasterReader {
+impl<AR> GdalRasterReader<AR> {
+    pub fn new(artifact_resolver: AR) -> Self {
+        Self { artifact_resolver }
+    }
+}
+
+impl<AR> RasterReader<f64> for GdalRasterReader<AR>
+where
+    AR: ArtifactResolver + Send + Sync,
+{
     #[tracing::instrument(
         skip(self),
         fields(
@@ -23,7 +35,8 @@ impl RasterReader<f64> for GdalRasterReader {
         path: &ArtifactLocator,
         raster_window: RasterReadWindow,
     ) -> Result<RasterWindowData<f64>, RasterReaderError> {
-        let path = path.to_string();
+        let path = self.artifact_resolver.resolve(path).unwrap();
+        tracing::info!(path, "resolved artifact path");
 
         tokio::task::spawn_blocking(move || {
             let dataset = Dataset::open(&path).map_err(|err| {

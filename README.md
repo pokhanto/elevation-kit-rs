@@ -2,9 +2,9 @@
 
 `elevation-kit` is set of tools for preparing elevation datasets and serving elevation data over different transports.
 
-### Main idea
+## Main idea
 `elevation-kit` is composable and extensible workspace.  
-Core crates provide shared domain types, query logic, and infrastructure adapters, while runnable applications such as `elevation-prepare-cli`, `elevation-tiles-http`, and `elevation-profile-grpc` compose these building blocks into different user-facing tools and services.
+Core crates provide shared domain types, query logic and infrastructure adapters, while runnable applications such as `elevation-prepare-cli`, `elevation-tiles-http`, and `elevation-profile-grpc` compose these building blocks into different user-facing tools and services.
 
 ```mermaid
 flowchart TD
@@ -41,6 +41,8 @@ Main runnable components at the moment:
 - `elevation-tiles-http` — serves tile-based elevation data over HTTP/SSE
 - `elevation-profile-grpc` — serves elevation profiles over gRPC
 
+## GDAL
+Most of `elevation-kit` relies on [GDAL](https://gdal.org/) under the hood for raster access and preprocessing. GDAL is used both through Rust bindings and, in some cases, through command-line tools such as `gdalwarp` and `gdal_translate` to reproject datasets, prepare Cloud Optimized GeoTIFFs, and read raster windows efficiently.
 
 ## Quick start for elevation-tiles-http
 
@@ -122,6 +124,7 @@ curl -N "http://127.0.0.1:3000/tiles/stream?min_lon=36.20&min_lat=49.96&max_lon=
 
 ## TODO:
 - Use primitives from [geo](https://docs.rs/geo/latest/geo/) library
-- Support median, min, max in `elevation-tiles-http` app
 - Add benchmarks
 - Replace point by point intersection processing with proper grid merge algorithm in core
+- implement raster reader without GDAL
+- Support median, min, max in `elevation-tiles-http` app

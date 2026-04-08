@@ -68,7 +68,7 @@ fn load_points_from_json(path: &str) -> Result<Vec<pb::Point>, Box<dyn std::erro
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "points.json".to_string());
+        .unwrap_or_else(|| "./tests/fixtures/points.json".to_string());
 
     let points = load_points_from_json(&path)?;
 

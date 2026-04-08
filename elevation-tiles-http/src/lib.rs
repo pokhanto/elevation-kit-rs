@@ -1,6 +1,6 @@
 //! HTTP server wiring for tile endpoints.
 use axum::Router;
-use elevation_adapters::{FsMetadataStorage, GdalRasterReader};
+use elevation_adapters::{FsArtifactResolver, FsMetadataStorage, GdalRasterReader};
 use elevation_core::ElevationService;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
@@ -18,7 +18,8 @@ pub use error::AppError;
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
-    pub tile_service: TileService<ElevationService<FsMetadataStorage, GdalRasterReader>>,
+    pub tile_service:
+        TileService<ElevationService<FsMetadataStorage, GdalRasterReader<FsArtifactResolver>>>,
 }
 
 /// Starts the HTTP server.
@@ -33,7 +34,7 @@ pub async fn run(
     })?;
 
     let metadata_storage = FsMetadataStorage::new(metadata_storage_dir, metadata_registry_name);
-    let raster_reader = GdalRasterReader;
+    let raster_reader = GdalRasterReader::new(FsArtifactResolver);
     let elevation_service = ElevationService::new(metadata_storage, raster_reader);
 
     let state = AppState {

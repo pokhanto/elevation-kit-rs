@@ -133,3 +133,13 @@ impl std::fmt::Display for ArtifactLocator {
         f.write_str(&self.0)
     }
 }
+
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
+pub enum ArtifactResolveError {
+    #[error("Unsupported artifact locator: {0}")]
+    UnsupportedLocator(String),
+}
+
+pub trait ArtifactResolver {
+    fn resolve(&self, locator: &ArtifactLocator) -> Result<String, ArtifactResolveError>;
+}

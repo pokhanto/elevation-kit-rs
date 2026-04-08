@@ -20,5 +20,6 @@ pub use spatial::{Bounds, Crs, ResolutionHint};
 
 mod storage;
 pub use storage::{
-    ArtifactLocator, ArtifactStorage, ArtifactStorageError, MetadataStorage, MetadataStorageError,
+    ArtifactLocator, ArtifactResolveError, ArtifactResolver, ArtifactStorage, ArtifactStorageError,
+    MetadataStorage, MetadataStorageError,
 };

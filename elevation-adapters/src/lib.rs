@@ -16,3 +16,9 @@ pub use artifact_storage_fs::FsArtifactStorage;
 
 mod raster_reader_gdal;
 pub use raster_reader_gdal::GdalRasterReader;
+
+mod artifact_storage_s3;
+pub use artifact_storage_s3::S3ArtifactStorage;
+
+mod artifact_resolvers;
+pub use artifact_resolvers::{FsArtifactResolver, GdalS3ArtifactResolver};

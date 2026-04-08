@@ -1,6 +1,6 @@
 //! Thin abstraction over low-level elevation service.
 
-use elevation_adapters::{FsMetadataStorage, GdalRasterReader};
+use elevation_adapters::{FsMetadataStorage, GdalRasterReader, GdalS3ArtifactResolver};
 use elevation_core::{ElevationService, ElevationServiceError};
 use elevation_domain::Elevation;
 
@@ -25,7 +25,9 @@ pub trait ElevationProvider {
 }
 
 /// Real implementation [`ElevationProvider`] backed by [`ElevationService`].
-impl ElevationProvider for ElevationService<FsMetadataStorage, GdalRasterReader> {
+impl ElevationProvider
+    for ElevationService<FsMetadataStorage, GdalRasterReader<GdalS3ArtifactResolver>>
+{
     async fn elevation_at_point(
         &self,
         lon: f64,

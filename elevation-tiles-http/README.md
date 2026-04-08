@@ -36,6 +36,10 @@ flowchart TD
     Raster --> Artifact
 ```
 
+## H3 tiles
+
+HTTP tile service uses [H3](https://h3geo.org/) to represent the world as a hierarchical grid of hexagonal cells. In `elevation-tiles-http`, requested areas are resolved into H3 cells, and each cell is served as a tile with an aggregated elevation value.
+
 ## What it does
 
 - resolves H3 tiles for requested area
