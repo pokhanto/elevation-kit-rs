@@ -1,6 +1,7 @@
 use elevation_domain::{ArtifactLocator, ArtifactResolveError, ArtifactResolver};
 
 /// Resolves `s3://...` locators into GDAL `/vsis3/...` paths.
+/// Uses (GDAL Virtual file system)[https://gdal.org/en/stable/user/virtual_file_systems.html]
 #[derive(Debug, Clone, Default)]
 pub struct GdalS3ArtifactResolver;
 
