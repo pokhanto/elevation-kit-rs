@@ -3,14 +3,19 @@ use elevation_domain::{
     RasterReader, RasterSize, ResolutionHint, WindowPlacement,
 };
 
-// TODO: Add more error variants
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
 pub enum ElevationServiceError {
-    #[error("Can't read metadata")]
-    Metadata,
+    #[error("Failed to load dataset metadata")]
+    MetadataLoad,
 
-    #[error("Can't read raster")]
-    Raster,
+    #[error("Failed to resolve output resolution")]
+    Resolution,
+
+    #[error("Failed to build raster processing plan")]
+    RasterPlan,
+
+    #[error("Failed to read raster data")]
+    RasterRead,
 }
 
 /// Service for resolving elevations from raster data using dataset metadata.
@@ -95,7 +100,7 @@ where
                 "failed to load dataset metadata"
             );
 
-            ElevationServiceError::Metadata
+            ElevationServiceError::MetadataLoad
         })?;
         let dataset = match get_dataset_for_point(datasets, lon, lat) {
             Some(dataset) => dataset,
@@ -133,7 +138,7 @@ where
                     "failed to read raster pixel"
                 );
 
-                ElevationServiceError::Raster
+                ElevationServiceError::RasterRead
             })?;
 
         let elevation_value = elevation_data.get(0, 0).copied();
@@ -223,7 +228,7 @@ where
                 "failed to load dataset metadata"
             );
 
-            ElevationServiceError::Metadata
+            ElevationServiceError::MetadataLoad
         })?;
 
         let mut intersections: Vec<(DatasetMetadata, Bounds)> = datasets
@@ -253,7 +258,7 @@ where
                         .partial_cmp(&area_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .ok_or(ElevationServiceError::Metadata)?,
+                .ok_or(ElevationServiceError::Resolution)?,
             ResolutionHint::Lowest => intersections
                 .iter()
                 .map(|(dataset, _)| {
@@ -269,7 +274,7 @@ where
                         .partial_cmp(&area_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
-                .ok_or(ElevationServiceError::Metadata)?,
+                .ok_or(ElevationServiceError::Resolution)?,
             ResolutionHint::Degrees {
                 lon_resolution,
                 lat_resolution,
@@ -297,7 +302,7 @@ where
         for (dataset, intersection) in intersections {
             let (raster_read_window, target_placement) =
                 create_raster_processing_plan(&intersection, &bbox, &dataset, width, height)
-                    .ok_or(ElevationServiceError::Metadata)?;
+                    .ok_or(ElevationServiceError::RasterPlan)?;
 
             let target_width = raster_read_window.target_size().width();
             let target_height = raster_read_window.target_size().height();
@@ -349,7 +354,7 @@ where
                         "failed to read raster window"
                     );
 
-                    ElevationServiceError::Raster
+                    ElevationServiceError::RasterRead
                 })?;
 
             for row in 0..raster_data.target_height() {
