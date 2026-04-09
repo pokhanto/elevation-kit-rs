@@ -61,7 +61,8 @@ where
         tracing::debug!(tile_id, "tile cache miss");
 
         let cell_index = CellIndex::from_str(&tile_id).map_err(|err| {
-            tracing::debug!(error = ?err, "failed to parse tile id as h3 cell");
+            dbg!(&err);
+            tracing::debug!(error = ?err, tile_id, "failed to parse tile id as h3 cell");
             TileServiceError::UnknownTile
         })?;
 
@@ -156,7 +157,7 @@ mod tests {
         fn ok(values: Vec<Option<Elevation>>) -> Self {
             Self {
                 result: Ok(BboxElevations {
-                    bbox: Bounds::new(11.1, 11.1, 11.1, 11.1).unwrap(),
+                    bbox: Bounds::new(11.1, 11.1, 11.5, 11.6).unwrap(),
                     width: 11,
                     height: 11,
                     values,
@@ -189,7 +190,7 @@ mod tests {
     }
 
     fn valid_tile_id() -> String {
-        "8a1e23fffffffff".to_string()
+        "8126fffffffffff".to_string()
     }
 
     fn valid_bbox() -> Bounds {
@@ -208,7 +209,7 @@ mod tests {
 
         let tile = service.get_tile_by_id(valid_tile_id()).await.unwrap();
 
-        assert_eq!(tile.id(), "8a1e23fffffffff");
+        assert_eq!(tile.id(), "8126fffffffffff");
         assert_eq!(tile.elevation().map(|e| e.0), Some(20.0));
     }
 
