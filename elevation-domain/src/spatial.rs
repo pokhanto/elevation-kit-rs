@@ -54,7 +54,7 @@ pub struct Bounds {
 
 impl Bounds {
     /// Cretes new Bounds, None if Bounds is not valid
-    pub fn new(
+    pub fn try_new(
         min_lon: f64,
         min_lat: f64,
         max_lon: f64,

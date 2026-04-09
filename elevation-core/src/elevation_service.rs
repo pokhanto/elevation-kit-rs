@@ -713,7 +713,7 @@ mod tests {
     }
 
     fn bbox(min_lon: f64, min_lat: f64, max_lon: f64, max_lat: f64) -> Bounds {
-        Bounds::new(min_lon, min_lat, max_lon, max_lat).unwrap()
+        Bounds::try_new(min_lon, min_lat, max_lon, max_lat).unwrap()
     }
 
     #[tokio::test]

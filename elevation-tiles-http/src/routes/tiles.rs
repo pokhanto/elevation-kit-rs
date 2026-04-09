@@ -95,7 +95,7 @@ pub async fn stream_tiles(
         max_lon,
         max_lat,
     } = request;
-    let bbox = Bounds::new(min_lon, min_lat, max_lon, max_lat).map_err(|err| {
+    let bbox = Bounds::try_new(min_lon, min_lat, max_lon, max_lat).map_err(|err| {
         tracing::error!(error = ?err, "invalid bbox provided in request");
         AppError::InvalidBounds
     })?;

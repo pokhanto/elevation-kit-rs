@@ -61,7 +61,6 @@ where
         tracing::debug!(tile_id, "tile cache miss");
 
         let cell_index = CellIndex::from_str(&tile_id).map_err(|err| {
-            dbg!(&err);
             tracing::debug!(error = ?err, tile_id, "failed to parse tile id as h3 cell");
             TileServiceError::UnknownTile
         })?;
@@ -157,7 +156,7 @@ mod tests {
         fn ok(values: Vec<Option<Elevation>>) -> Self {
             Self {
                 result: Ok(BboxElevations {
-                    bbox: Bounds::new(11.1, 11.1, 11.5, 11.6).unwrap(),
+                    bbox: Bounds::try_new(11.1, 11.1, 11.5, 11.6).unwrap(),
                     width: 11,
                     height: 11,
                     values,
@@ -194,7 +193,7 @@ mod tests {
     }
 
     fn valid_bbox() -> Bounds {
-        Bounds::new(36.20, 49.96, 36.30, 50.02).unwrap()
+        Bounds::try_new(36.20, 49.96, 36.30, 50.02).unwrap()
     }
 
     #[tokio::test]

@@ -14,7 +14,7 @@ use tokio::runtime::Runtime;
 fn bench_elevations_in_bbox(c: &mut Criterion) {
     let runtime = Runtime::new().unwrap();
     // bounds to request, changing will affect result
-    let bbox = Bounds::new(30.0, 50.0, 30.3, 50.3).unwrap();
+    let bbox = Bounds::try_new(30.0, 50.0, 30.3, 50.3).unwrap();
     // resolution hint to request, changing will affect result
     let resolution_hint = ResolutionHint::Degrees {
         lon_resolution: 0.0005,
@@ -137,7 +137,7 @@ fn make_datasets(
         datasets.push(fake_dataset(
             &format!("artifact-{i}"),
             "artifact",
-            Bounds::new(
+            Bounds::try_new(
                 100.0 + i as f64,
                 100.0 + i as f64,
                 101.0 + i as f64,

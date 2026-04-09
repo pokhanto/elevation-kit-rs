@@ -216,3 +216,125 @@ pub trait RasterReader<T> {
         raster_window: RasterReadWindow,
     ) -> impl Future<Output = Result<RasterWindowData<T>, RasterReaderError>> + Send;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_placement_returns_column_and_row() {
+        let placement = WindowPlacement::new(3, 7);
+
+        assert_eq!(placement.column(), 3);
+        assert_eq!(placement.row(), 7);
+    }
+
+    #[test]
+    fn raster_size_returns_width_and_height() {
+        let size = RasterSize::new(10, 20);
+
+        assert_eq!(size.width(), 10);
+        assert_eq!(size.height(), 20);
+    }
+
+    #[test]
+    fn raster_size_point_is_one_by_one() {
+        let size = RasterSize::point();
+
+        assert_eq!(size.width(), 1);
+        assert_eq!(size.height(), 1);
+    }
+
+    #[test]
+    fn raster_read_window_returns_parts() {
+        let placement = WindowPlacement::new(2, 4);
+        let source_size = RasterSize::new(5, 6);
+        let target_size = RasterSize::new(7, 8);
+
+        let window = RasterReadWindow::new(placement, source_size, target_size);
+
+        assert_eq!(window.placement(), placement);
+        assert_eq!(window.source_size(), source_size);
+        assert_eq!(window.target_size(), target_size);
+    }
+
+    #[test]
+    fn raster_read_window_new_point_creates_one_by_one_window() {
+        let placement = WindowPlacement::new(9, 11);
+
+        let window = RasterReadWindow::new_point(placement);
+
+        assert_eq!(window.placement(), placement);
+        assert_eq!(window.source_size(), RasterSize::point());
+        assert_eq!(window.target_size(), RasterSize::point());
+    }
+
+    #[test]
+    fn raster_window_data_try_new_accepts_matching_values() {
+        let window = RasterReadWindow::new(
+            WindowPlacement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 3),
+        );
+
+        let data = RasterWindowData::try_new(window, vec![1, 2, 3, 4, 5, 6]).unwrap();
+
+        assert_eq!(data.target_width(), 2);
+        assert_eq!(data.target_height(), 3);
+        assert_eq!(data.values(), &[1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn raster_window_data_try_new_rejects_invalid_values() {
+        let window = RasterReadWindow::new(
+            WindowPlacement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(2, 3),
+        );
+
+        let err = RasterWindowData::try_new(window, vec![1, 2, 3]).unwrap_err();
+
+        assert_eq!(err, RasterWindowDataError::InvalidValuesLength);
+    }
+
+    #[test]
+    fn raster_window_data_get_returns_value_by_row_major_index() {
+        let window = RasterReadWindow::new(
+            WindowPlacement::new(0, 0),
+            RasterSize::new(2, 2),
+            RasterSize::new(3, 2),
+        );
+
+        let data = RasterWindowData::try_new(window, vec![10, 11, 12, 20, 21, 22]).unwrap();
+
+        assert_eq!(data.get(0, 0), Some(&10));
+        assert_eq!(data.get(1, 0), Some(&11));
+        assert_eq!(data.get(2, 0), Some(&12));
+        assert_eq!(data.get(0, 1), Some(&20));
+        assert_eq!(data.get(1, 1), Some(&21));
+        assert_eq!(data.get(2, 1), Some(&22));
+    }
+
+    #[test]
+    fn raster_window_data_get_returns_none_when_out_of_bounds() {
+        let window = RasterReadWindow::new(
+            WindowPlacement::new(0, 0),
+            RasterSize::new(1, 1),
+            RasterSize::new(2, 2),
+        );
+
+        let data = RasterWindowData::try_new(window, vec![1, 2, 3, 4]).unwrap();
+
+        assert_eq!(data.get(2, 0), None);
+        assert_eq!(data.get(0, 2), None);
+        assert_eq!(data.get(2, 2), None);
+    }
+
+    #[test]
+    fn raster_window_data_into_values_returns_inner_vector() {
+        let window = RasterReadWindow::new_point(WindowPlacement::new(0, 0));
+        let data = RasterWindowData::try_new(window, vec![42]).unwrap();
+
+        assert_eq!(data.into_values(), vec![42]);
+    }
+}

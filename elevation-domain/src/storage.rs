@@ -171,3 +171,49 @@ impl std::fmt::Display for ResolvedArtifactPath {
         f.write_str(&self.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_locator_new_and_as_ref_work() {
+        let locator = ArtifactLocator::new("s3://bucket/file.tif");
+
+        assert_eq!(locator.as_ref(), "s3://bucket/file.tif");
+    }
+
+    #[test]
+    fn artifact_locator_from_string_and_str_work() {
+        let from_string = ArtifactLocator::from(String::from("a.tif"));
+        let from_str = ArtifactLocator::from("b.tif");
+
+        assert_eq!(from_string.as_ref(), "a.tif");
+        assert_eq!(from_str.as_ref(), "b.tif");
+    }
+
+    #[test]
+    fn artifact_locator_from_pathbuf_and_path_work() {
+        let from_pathbuf = ArtifactLocator::from(PathBuf::from("/tmp/file.tif"));
+        let from_path = ArtifactLocator::from(Path::new("/tmp/other.tif"));
+
+        assert_eq!(from_pathbuf.as_ref(), "/tmp/file.tif");
+        assert_eq!(from_path.as_ref(), "/tmp/other.tif");
+    }
+
+    #[test]
+    fn artifact_locator_display_and_into_string_work() {
+        let locator = ArtifactLocator::new("s3://bucket/file.tif");
+
+        assert_eq!(locator.to_string(), String::from("s3://bucket/file.tif"));
+        assert_eq!(String::from(locator), String::from("s3://bucket/file.tif"));
+    }
+
+    #[test]
+    fn resolved_artifact_path_new_as_ref_and_display_work() {
+        let resolved = ResolvedArtifactPath::new("/vsis3/bucket/file.tif");
+
+        assert_eq!(resolved.as_ref(), "/vsis3/bucket/file.tif");
+        assert_eq!(resolved.to_string(), "/vsis3/bucket/file.tif");
+    }
+}
