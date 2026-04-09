@@ -40,7 +40,6 @@ pub async fn run(
     let state = AppState {
         tile_service: TileService::new(elevation_service, tile_cache_max_capacity),
     };
-
     let app = Router::new()
         .nest("/tiles", routes::tiles_router())
         .layer(CorsLayer::permissive())
@@ -50,5 +49,12 @@ pub async fn run(
     let listener = TcpListener::bind(app_addr).await?;
 
     tracing::info!(address = %app_addr, "starting server at address");
-    axum::serve(listener, app).await
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+}
+
+async fn shutdown_signal() {
+    let _ = tokio::signal::ctrl_c().await;
+    tracing::info!("shutdown signal received");
 }

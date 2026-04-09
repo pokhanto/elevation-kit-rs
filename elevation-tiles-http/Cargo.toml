@@ -7,7 +7,11 @@ edition = "2024"
 elevation-adapters = { path = "../elevation-adapters" }
 elevation-domain = { path = "../elevation-domain" }
 elevation-core = { path = "../elevation-core" }
-tokio = { version = "1.51.0", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1.51.0", features = [
+  "macros",
+  "rt-multi-thread",
+  "signal",
+] }
 axum = { version = "0.8.8" }
 serde = { version = "1.0.228", features = ["derive"] }
 futures-util = "0.3.32"
