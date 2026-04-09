@@ -35,7 +35,15 @@ where
         path: &ArtifactLocator,
         raster_window: RasterReadWindow,
     ) -> Result<RasterWindowData<f64>, RasterReaderError> {
-        let path = self.artifact_resolver.resolve(path).unwrap();
+        let path = self.artifact_resolver.resolve(path).map_err(|err| {
+            tracing::debug!(
+                error = %err,
+                path = %path,
+                "failed to resolve path for raster"
+            );
+            RasterReaderError::Path
+        })?;
+
         tracing::info!(path = %path, "resolved artifact path");
 
         tokio::task::spawn_blocking(move || {
