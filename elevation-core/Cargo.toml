@@ -10,3 +10,8 @@ thiserror = "2.0.18"
 
 [dev-dependencies]
 tokio = { version = "1.51.0", features = ["rt-multi-thread", "macros"] }
+criterion = { version = "0.8.2", features = ["async_tokio"] }
+
+[[bench]]
+name = "service_datasets_merge"
+harness = false

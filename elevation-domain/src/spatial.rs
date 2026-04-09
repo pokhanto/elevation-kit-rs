@@ -33,7 +33,7 @@ impl std::fmt::Display for Crs {
 }
 
 /// Hint used to select an output raster resolution.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ResolutionHint {
     /// Use highest available resolution.
     Highest,

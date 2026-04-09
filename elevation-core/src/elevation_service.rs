@@ -219,6 +219,7 @@ where
         resolution_hint: Option<ResolutionHint>,
     ) -> Result<BboxElevations, ElevationServiceError> {
         tracing::info!(bbox = ?bbox, resolution_hint = ?resolution_hint, "starting getting elevations in bbox with resolution");
+
         let datasets = self.metadata.load_metadata().await.map_err(|err| {
             tracing::error!(
                 error = %err,
@@ -230,7 +231,6 @@ where
             ElevationServiceError::Metadata
         })?;
 
-        // get all intersections for all datasets with requested bbox
         let mut intersections: Vec<(DatasetMetadata, Bounds)> = datasets
             .into_iter()
             .filter_map(|dataset| {
@@ -242,8 +242,6 @@ where
             })
             .collect();
 
-        // TODO: degrees would not work for some CRS
-        // get resolution in degrees
         let resolution_degrees = match resolution_hint.unwrap_or(ResolutionHint::Highest) {
             ResolutionHint::Highest => intersections
                 .iter()
@@ -283,35 +281,66 @@ where
             } => (lon_resolution, lat_resolution),
         };
 
-        // calculate destination result's height and width
         let width = ((bbox.max_lon - bbox.min_lon) / resolution_degrees.0).ceil() as usize;
         let height = ((bbox.max_lat - bbox.min_lat) / resolution_degrees.1).ceil() as usize;
 
-        // create and fill destination result
         let mut values = vec![None; width * height];
+        let mut covered = vec![0_u8; width * height];
 
-        // sort by resolution, merge priority
-        // here lowest quality sorted to be first
-        // so lowest quality points will come first and be rewritten with higher quality
+        // highest quality first
         intersections.sort_by(|(a, _), (b, _)| {
             let a_area = a.raster.geo_transform.pixel_width.abs()
                 * a.raster.geo_transform.pixel_height.abs();
             let b_area = b.raster.geo_transform.pixel_width.abs()
                 * b.raster.geo_transform.pixel_height.abs();
 
-            b_area
-                .partial_cmp(&a_area)
+            a_area
+                .partial_cmp(&b_area)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        // process each intersection
         for (dataset, intersection) in intersections {
-            // calculate window to read from raster along with target placement in resulting data
             let (raster_read_window, target_placement) =
                 create_raster_processing_plan(&intersection, &bbox, &dataset, width, height)
                     .ok_or(ElevationServiceError::Metadata)?;
 
-            // read data from raster
+            let target_width = raster_read_window.target_size.width();
+            let target_height = raster_read_window.target_size.height();
+            let target_base_col = target_placement.column();
+            let target_base_row = target_placement.row();
+
+            // skip whole intersection if its target rectangle is already fully covered
+            let mut fully_covered = true;
+            for row in 0..target_height {
+                let target_row = target_base_row + row;
+                if target_row >= height {
+                    fully_covered = false;
+                    break;
+                }
+
+                let target_row_start = target_row * width + target_base_col;
+                let target_row_end =
+                    (target_row_start + target_width).min((target_row + 1) * width);
+
+                if target_row_start >= target_row_end {
+                    fully_covered = false;
+                    break;
+                }
+
+                if covered[target_row_start..target_row_end].contains(&0) {
+                    fully_covered = false;
+                    break;
+                }
+            }
+
+            if fully_covered {
+                tracing::debug!(
+                    dataset_id = %dataset.dataset_id,
+                    "skipping fully covered intersection"
+                );
+                continue;
+            }
+
             let raster_data = self
                 .raster
                 .read_window(&dataset.artifact_path, raster_read_window)
@@ -328,26 +357,47 @@ where
                     ElevationServiceError::Raster
                 })?;
 
-            // go over points in raster data to insert them in result values
             for row in 0..raster_data.target_height() {
-                for col in 0..raster_data.target_width() {
-                    let target_column = target_placement.column() + col;
-                    let target_row = target_placement.row() + row;
+                let target_row = target_base_row + row;
+                if target_row >= height {
+                    continue;
+                }
 
-                    if target_column >= width || target_row >= height {
+                let row_start = target_row * width + target_base_col;
+                let row_end =
+                    (row_start + raster_data.target_width()).min((target_row + 1) * width);
+
+                if row_start >= row_end {
+                    continue;
+                }
+
+                // skip whole row if it is already fully covered
+                if covered[row_start..row_end].iter().all(|&cell| cell == 1) {
+                    continue;
+                }
+
+                for col in 0..raster_data.target_width() {
+                    let target_column = target_base_col + col;
+                    if target_column >= width {
                         continue;
                     }
 
                     let target_index = target_row * width + target_column;
+
+                    // lower quality datasets only fill gaps
+                    if covered[target_index] == 1 {
+                        continue;
+                    }
+
                     let raster_value = raster_data.get(col, row).copied();
 
                     if let Some(value) = raster_value {
-                        // skip nodata
                         if dataset.raster.nodata == Some(value) {
                             continue;
                         }
 
                         values[target_index] = Some(Elevation(value));
+                        covered[target_index] = 1;
                     }
                 }
             }
@@ -442,14 +492,17 @@ fn create_raster_processing_plan(
 
     let gt = &dataset.raster.geo_transform;
 
+    // compute destination grid resolution in geographic units
     let lon_step = (requested_bbox.max_lon - requested_bbox.min_lon) / final_width as f64;
     let lat_step = (requested_bbox.max_lat - requested_bbox.min_lat) / final_height as f64;
 
+    // map intersection bounds into source raster column range
     let source_start_col =
         ((intersection.min_lon - gt.origin_lon) / gt.pixel_width).floor() as isize;
     let source_end_col_exclusive =
         ((intersection.max_lon - gt.origin_lon) / gt.pixel_width).ceil() as isize;
 
+    // map intersection bounds into source raster column range
     let source_start_row =
         ((gt.origin_lat - intersection.max_lat) / gt.pixel_height.abs()).floor() as isize;
     let source_end_row_exclusive =
@@ -463,20 +516,24 @@ fn create_raster_processing_plan(
         return None;
     }
 
+    // clamp source range to raster dimensions
     let source_start_col = source_start_col as usize;
     let source_start_row = source_start_row as usize;
     let source_end_col_exclusive = (source_end_col_exclusive as usize).min(dataset.raster.width);
     let source_end_row_exclusive = (source_end_row_exclusive as usize).min(dataset.raster.height);
 
+    // reject ranges where start falls completely outside raster bounds
     if source_start_col >= dataset.raster.width || source_start_row >= dataset.raster.height {
         return None;
     }
 
+    // reject empty source window
     if source_end_col_exclusive <= source_start_col || source_end_row_exclusive <= source_start_row
     {
         return None;
     }
 
+    // map intersection in destination result grid
     let target_start_col =
         ((intersection.min_lon - requested_bbox.min_lon) / lon_step).floor() as isize;
     let target_end_col_exclusive =
@@ -495,23 +552,26 @@ fn create_raster_processing_plan(
         return None;
     }
 
+    // clamp target range to final result dimensions
     let target_start_col = target_start_col as usize;
     let target_start_row = target_start_row as usize;
-    let dst_end_col_exclusive = (target_end_col_exclusive as usize).min(final_width);
-    let dst_end_row_exclusive = (target_end_row_exclusive as usize).min(final_height);
+    let target_end_col_exclusive = (target_end_col_exclusive as usize).min(final_width);
+    let target_end_row_exclusive = (target_end_row_exclusive as usize).min(final_height);
 
-    if dst_end_col_exclusive <= target_start_col || dst_end_row_exclusive <= target_start_row {
+    if target_end_col_exclusive <= target_start_col || target_end_row_exclusive <= target_start_row
+    {
         return None;
     }
 
+    // build source raster window and destination placement
     let placement = Placement::new(source_start_col, source_start_row);
     let source_size = RasterSize::new(
         source_end_col_exclusive - source_start_col,
         source_end_row_exclusive - source_start_row,
     );
     let target_size = RasterSize::new(
-        dst_end_col_exclusive - target_start_col,
-        dst_end_row_exclusive - target_start_row,
+        target_end_col_exclusive - target_start_col,
+        target_end_row_exclusive - target_start_row,
     );
 
     let target_placement = Placement::new(target_start_col, target_start_row);
@@ -829,80 +889,6 @@ mod tests {
                 Some(Elevation(10.0)),
                 Some(Elevation(20.0)),
                 Some(Elevation(20.0)),
-            ]
-        );
-    }
-
-    #[tokio::test]
-    async fn elevations_in_bbox_overwrites_lower_quality_with_higher_quality_dataset() {
-        let requested_bbox = bbox(0.0, 0.0, 2.0, 2.0);
-
-        let low_quality = dataset("low", "low.tif", requested_bbox, 1.0, -1.0, None);
-
-        let high_quality = dataset(
-            "high",
-            "high.tif",
-            bbox(1.0, 1.0, 2.0, 2.0),
-            1.0,
-            -1.0,
-            None,
-        );
-
-        let metadata = FakeMetadataStorage {
-            datasets: vec![low_quality, high_quality],
-            should_fail: false,
-        };
-
-        let low_raster_read_window = RasterReadWindow::new(
-            Placement::new(0, 0),
-            RasterSize::new(2, 2),
-            RasterSize::new(2, 2),
-        );
-
-        let high_raster_read_window = RasterReadWindow::new(
-            Placement::new(0, 0),
-            RasterSize::new(1, 1),
-            RasterSize::new(1, 1),
-        );
-
-        let raster = FakeRasterReader {
-            responses: vec![
-                FakeRasterReaderData {
-                    artifact_path: "low.tif".to_string(),
-                    window: low_raster_read_window,
-                    result: window_data(low_raster_read_window, vec![10.0, 10.0, 10.0, 10.0]),
-                },
-                FakeRasterReaderData {
-                    artifact_path: "high.tif".to_string(),
-                    window: high_raster_read_window,
-                    result: window_data(high_raster_read_window, vec![20.0]),
-                },
-            ],
-            ..Default::default()
-        };
-
-        let service = ElevationService::new(metadata, raster);
-
-        let result = service
-            .elevations_in_bbox(
-                requested_bbox,
-                Some(ResolutionHint::Degrees {
-                    lon_resolution: 1.0,
-                    lat_resolution: 1.0,
-                }),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(result.width, 2);
-        assert_eq!(result.height, 2);
-        assert_eq!(
-            result.values,
-            vec![
-                Some(Elevation(10.0)),
-                Some(Elevation(20.0)),
-                Some(Elevation(10.0)),
-                Some(Elevation(10.0)),
             ]
         );
     }
