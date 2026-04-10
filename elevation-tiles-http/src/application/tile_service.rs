@@ -1,6 +1,6 @@
 //! Tile service for resolving H3 tiles and their aggregated elevations.
 
-use elevation_domain::{BboxElevations, Bounds, Elevation, ResolutionHint};
+use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
 use futures::Stream;
 use geo::{BoundingRect, Contains, Intersects, Point, Polygon};
 use h3o::{
@@ -13,16 +13,16 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     application::{
-        elevation_accumulator::MeanElevationAccumulator, elevation_provider::ElevationProvider,
+        elevation_calculation::ElevationCalculationStrategy, elevation_provider::ElevationProvider,
     },
     domain::{ElevationTile, Tile},
 };
 
-/// Controls split of big requested bounding box to smaller chunks.
+/// Controls split of requested bounding box to smaller chunks.
 const MAX_CELLS_PER_CHUNK: usize = 25000;
 
 // TODO: extract this mapping into config/service.
-// Or - rework to not rely on specific resolution
+// Or, even better - rework to not rely on specific resolution
 const RESOLUTION_HINT: ResolutionHint = ResolutionHint::Degrees {
     lon_resolution: 0.005,
     lat_resolution: 0.005,
@@ -43,11 +43,11 @@ pub enum TileServiceError {
     ChunkResolution,
 }
 
-/// Resolves tiles and caches computed results.
+/// Resolves tiles and caches calculated results.
 #[derive(Clone, Debug)]
 pub struct TileService<EP> {
     elevation_provider: EP,
-    // moka Cache cloning is cheap.
+    // moka::Cache cloning is cheap
     cache: Cache<String, ElevationTile>,
     max_cells_per_chunk: usize,
 }
@@ -68,9 +68,18 @@ where
     }
 
     /// Returns tile by id, using cache when possible.
-    #[tracing::instrument(skip(self), fields(tile_id = %tile_id))]
-    pub async fn get_tile_by_id(&self, tile_id: String) -> Result<ElevationTile, TileServiceError> {
-        if let Some(tile) = self.cache.get(&tile_id).await {
+    #[tracing::instrument(skip(self, calculation_strategy), fields(tile_id = %tile_id))]
+    pub async fn get_tile_by_id<S>(
+        &self,
+        tile_id: String,
+        calculation_strategy: S,
+    ) -> Result<ElevationTile, TileServiceError>
+    where
+        S: ElevationCalculationStrategy,
+    {
+        let cache_key = tile_cache_key(calculation_strategy.key(), &tile_id);
+
+        if let Some(tile) = self.cache.get(&cache_key).await {
             tracing::debug!(tile_id, "tile cache hit");
             return Ok(tile);
         }
@@ -83,7 +92,7 @@ where
         })?;
 
         let tile_bounding_rect = tile.bounding_rect().ok_or_else(|| {
-            tracing::debug!("failed to compute bounding rect from h3 cell boundary");
+            tracing::debug!("failed to calculate bounding rect from h3 cell boundary");
             TileServiceError::UnknownTile
         })?;
 
@@ -96,14 +105,16 @@ where
                 TileServiceError::Elevation
             })?;
 
-        let mut mean_elevation = MeanElevationAccumulator::new();
-        mean_elevation.extend(elevations.values);
+        let mut calculation_state = calculation_strategy.new_state();
 
-        let elevation_tile = ElevationTile::new(tile_id, mean_elevation.mean());
+        for value in elevations.values.into_iter().flatten() {
+            calculation_strategy.update(&mut calculation_state, value);
+        }
 
-        self.cache
-            .insert(elevation_tile.id().to_owned(), elevation_tile.clone())
-            .await;
+        let elevation_tile =
+            ElevationTile::new(tile_id, calculation_strategy.finalize(calculation_state));
+
+        self.cache.insert(cache_key, elevation_tile.clone()).await;
 
         Ok(elevation_tile)
     }
@@ -122,7 +133,7 @@ where
     /// across chunk processing. Tiles updated from every chunk they intersect
     /// and emitted only after all relevant chunks is processed.
     #[tracing::instrument(
-        skip(self),
+        skip(self, calcualtion_strategy),
         fields(
             zoom_level,
             min_lon = bbox.min_lon(),
@@ -131,14 +142,19 @@ where
             max_lat = bbox.max_lat(),
         )
     )]
-    pub fn stream_tiles_for_bbox(
+    pub fn stream_tiles_for_bbox<S>(
         &self,
         bbox: Bounds,
         zoom_level: u8,
+        calcualtion_strategy: S,
     ) -> Result<
-        impl Stream<Item = Result<ElevationTile, TileServiceError>> + Send + 'static + use<EP>,
+        impl Stream<Item = Result<ElevationTile, TileServiceError>> + Send + 'static + use<EP, S>,
         TileServiceError,
-    > {
+    >
+    where
+        S: ElevationCalculationStrategy + Send + Sync + 'static,
+        S::State: Send + 'static,
+    {
         // resolve all H3 tiles covering requested bbox
         let tile_ids = get_tile_ids_for_bbox(bbox, zoom_level)?;
 
@@ -179,7 +195,7 @@ where
                     TileAggregationState {
                         polygon,
                         bounds: bounds.into(),
-                        mean_elevation_accumulator: MeanElevationAccumulator::new(),
+                        calculation_state: calcualtion_strategy.new_state(),
                         remaining_chunks: 0,
                     },
                 ))
@@ -209,8 +225,7 @@ where
         let (tx, rx) = tokio::sync::mpsc::channel::<Result<ElevationTile, TileServiceError>>(128);
 
         tokio::spawn(async move {
-            let mut tile_states = tile_states;
-
+            let strategy_key = calcualtion_strategy.key();
             // process chunks one by one and update only tiles that intersect current chunk
             for chunk in chunk_infos {
                 let affected_tile_ids = chunk_to_tile_ids
@@ -222,7 +237,39 @@ where
                     continue;
                 }
 
-                // fetch elevations for current chunk
+                // try to find this chunk in cache
+                let mut uncached_tile_ids = Vec::new();
+
+                for tile_id in &affected_tile_ids {
+                    // tile may already be completed and removed by previous chunk
+                    if !tile_states.contains_key(tile_id) {
+                        continue;
+                    }
+                    let cache_key = tile_cache_key(strategy_key, tile_id);
+
+                    if let Some(tile) = cache.get(&cache_key).await {
+                        // cached tile does not need to be calculated, so remove its state and emit immediately
+                        tile_states.remove(tile_id);
+
+                        if tx.send(Ok(tile)).await.is_err() {
+                            tracing::debug!("tile streaming was not successful");
+                            return;
+                        }
+                    } else {
+                        uncached_tile_ids.push(tile_id.clone());
+                    }
+                }
+
+                // if every tile for this chunk was already cached, skip bbox read completely
+                if uncached_tile_ids.is_empty() {
+                    tracing::debug!(
+                        chunk_id = chunk.id,
+                        "skipping chunk because all tiles are cached"
+                    );
+                    continue;
+                }
+
+                // fetch elevations only for tiles still missing from cache
                 let chunk_elevations = match elevation_provider
                     .elevations_in_bbox(chunk.bounds, Some(RESOLUTION_HINT))
                     .await
@@ -240,53 +287,58 @@ where
                     }
                 };
 
-                // update aggregation state only for tiles selected for this chunk
                 update_selected_tile_states_from_chunk(
                     &chunk_elevations,
-                    affected_tile_ids.iter().map(String::as_str),
+                    uncached_tile_ids.iter().map(String::as_str),
                     &mut tile_states,
+                    &calcualtion_strategy,
                 );
 
                 tracing::info!(
                     chunk_id = chunk.id,
                     affected_tiles = affected_tile_ids.len(),
+                    uncached_tiles = uncached_tile_ids.len(),
                     "processed chunk"
                 );
 
                 let mut completed_tile_ids = Vec::new();
 
-                // decrease remaining chunk counters and detect tiles that are now fully calculated
-                for tile_id in affected_tile_ids {
+                for tile_id in uncached_tile_ids {
                     let Some(state) = tile_states.get_mut(&tile_id) else {
                         continue;
                     };
 
+                    // tile got data for current chunk, decrease counter
                     if state.remaining_chunks > 0 {
                         state.remaining_chunks -= 1;
                     }
 
+                    // if no counters - tile got data from all chunks
                     if state.remaining_chunks == 0 {
                         completed_tile_ids.push(tile_id);
                     }
                 }
 
-                // build final tiles for completed ids, cache them, and emit into stream
                 for tile_id in completed_tile_ids {
                     let Some(state) = tile_states.remove(&tile_id) else {
                         continue;
                     };
 
-                    let tile = ElevationTile::new(tile_id.clone(), state.mean());
+                    let tile = ElevationTile::new(
+                        tile_id.clone(),
+                        calcualtion_strategy.finalize(state.calculation_state),
+                    );
 
-                    cache.insert(tile.id().to_owned(), tile.clone()).await;
+                    let cache_key = tile_cache_key(strategy_key, tile.id());
+
+                    cache.insert(cache_key, tile.clone()).await;
 
                     if tx.send(Ok(tile)).await.is_err() {
-                        tracing::debug!("client disconnected while streaming completed tiles");
+                        tracing::debug!("tile streaming was not successful");
                         return;
                     }
                 }
 
-                // yield between chunks
                 tokio::task::yield_now().await;
             }
         });
@@ -297,26 +349,22 @@ where
 
 #[derive(Debug, Clone, Copy)]
 struct ChunkInfo {
+    /// Chunk id used to map chunk with to tiles.
     id: usize,
+    /// Geographic bounds of this chunk.
     bounds: Bounds,
 }
 
 #[derive(Debug, Clone)]
-struct TileAggregationState {
+struct TileAggregationState<S> {
+    /// Exact tile polygon.
     polygon: Polygon<f64>,
+    /// Bounding box of tile polygon.
     bounds: Bounds,
-    mean_elevation_accumulator: MeanElevationAccumulator,
+    /// Running accumulator for elevation values contributed to this tile.
+    calculation_state: S,
+    /// Number of chunks that may still contribute to this tile.
     remaining_chunks: usize,
-}
-
-impl TileAggregationState {
-    fn add(&mut self, value: Elevation) {
-        self.mean_elevation_accumulator.add(value);
-    }
-
-    fn mean(&self) -> Option<Elevation> {
-        self.mean_elevation_accumulator.mean()
-    }
 }
 
 pub fn get_tile_ids_for_bbox(
@@ -348,11 +396,14 @@ pub fn get_tile_ids_for_bbox(
 }
 
 /// Updates only selected tiles from one chunk.
-fn update_selected_tile_states_from_chunk<'a>(
+fn update_selected_tile_states_from_chunk<'a, S>(
     elevations: &BboxElevations,
     tile_ids: impl IntoIterator<Item = &'a str>,
-    tile_states: &mut HashMap<String, TileAggregationState>,
-) {
+    tile_states: &mut HashMap<String, TileAggregationState<S::State>>,
+    strategy: &S,
+) where
+    S: ElevationCalculationStrategy,
+{
     if elevations.width == 0 || elevations.height == 0 {
         return;
     }
@@ -370,7 +421,7 @@ fn update_selected_tile_states_from_chunk<'a>(
         };
 
         // find overlap between tile bounds and current chunk bbox
-        // if there is no overlap, this chunk cannot contribute to tile
+        // if there is no overlap - skip
         let overlap = match state.bounds.intersection(&elevations.bbox) {
             Some(v) => v,
             None => continue,
@@ -400,7 +451,7 @@ fn update_selected_tile_states_from_chunk<'a>(
         }
 
         for row in start_row..end_row_exclusive {
-            // compute latitude of cell center for current row
+            // calculate latitude of cell center for current row
             let lat = elevations.bbox.max_lat() - (row as f64 + 0.5) * lat_step;
 
             for col in start_col..end_col_exclusive {
@@ -409,7 +460,7 @@ fn update_selected_tile_states_from_chunk<'a>(
                     continue;
                 };
 
-                // compute longitude of cell center for current column
+                // calculate longitude of cell center for current column
                 let lon = elevations.bbox.min_lon() + (col as f64 + 0.5) * lon_step;
 
                 // cheap rectangular prefilter before exact polygon check
@@ -421,7 +472,7 @@ fn update_selected_tile_states_from_chunk<'a>(
 
                 // exact containment check against H3 tile polygon
                 if state.polygon.contains(&point) {
-                    state.add(value);
+                    strategy.update(&mut state.calculation_state, value);
                 }
             }
         }
@@ -442,53 +493,38 @@ fn split_bbox_into_chunks(
         _ => return Err(TileServiceError::ChunkResolution),
     };
 
-    // compute full raster grid size for requested bbox at target resolution
-    let full_width = ((bbox.max_lon() - bbox.min_lon()) / lon_resolution).ceil() as usize;
-    let full_height = ((bbox.max_lat() - bbox.min_lat()) / lat_resolution).ceil() as usize;
+    // approximate square chunk size in output grid cells
+    let chunk_side_cells = (max_cells_per_chunk as f64).sqrt().floor().max(1.0);
 
-    if full_width == 0 || full_height == 0 {
-        return Ok(Vec::new());
-    }
-
-    // if requested bbox already fits into one chunk - return it as is
-    if full_width * full_height <= max_cells_per_chunk {
-        return Ok(vec![bbox]);
-    }
-
-    // approximate square chunk size in raster cells
-    let chunk_side = (max_cells_per_chunk as f64).sqrt().floor() as usize;
-    let chunk_width = chunk_side.max(1).min(full_width);
-    let chunk_height = chunk_side.max(1).min(full_height);
-
-    // compute geographic size of one output cell
-    let lon_step = (bbox.max_lon() - bbox.min_lon()) / full_width as f64;
-    let lat_step = (bbox.max_lat() - bbox.min_lat()) / full_height as f64;
+    // convert chunk size in cells into geographic step in degrees
+    let chunk_lon_step = chunk_side_cells * lon_resolution;
+    let chunk_lat_step = chunk_side_cells * lat_resolution;
 
     let mut chunks = Vec::new();
 
-    let mut start_row = 0;
-    while start_row < full_height {
-        let end_row = (start_row + chunk_height).min(full_height);
+    // split bbox row by row in latitude direction
+    let mut min_lat = bbox.min_lat();
+    while min_lat < bbox.max_lat() {
+        let max_lat = (min_lat + chunk_lat_step).min(bbox.max_lat());
 
-        let mut start_col = 0;
-        while start_col < full_width {
-            let end_col = (start_col + chunk_width).min(full_width);
-
-            // map chunk grid window back into geographic bounds
-            let min_lon = bbox.min_lon() + start_col as f64 * lon_step;
-            let max_lon = bbox.min_lon() + end_col as f64 * lon_step;
-            let max_lat = bbox.max_lat() - start_row as f64 * lat_step;
-            let min_lat = bbox.max_lat() - end_row as f64 * lat_step;
+        // split current latitude column by column in longitude direction
+        let mut min_lon = bbox.min_lon();
+        while min_lon < bbox.max_lon() {
+            let max_lon = (min_lon + chunk_lon_step).min(bbox.max_lon());
 
             let chunk = Bounds::try_new(min_lon, min_lat, max_lon, max_lat)
                 .map_err(|_| TileServiceError::BuildTiles)?;
 
             chunks.push(chunk);
-            start_col = end_col;
+            min_lon = max_lon;
         }
 
-        start_row = end_row;
+        min_lat = max_lat;
     }
 
     Ok(chunks)
+}
+
+fn tile_cache_key(strategy_key: &str, tile_id: &str) -> String {
+    format!("{strategy_key}:{tile_id}")
 }

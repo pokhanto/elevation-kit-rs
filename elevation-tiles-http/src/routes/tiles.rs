@@ -11,7 +11,9 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 
-use crate::{AppError, AppState, domain::ElevationTile};
+use crate::{
+    AppError, AppState, application::MeanElevationCalculationStrategy, domain::ElevationTile,
+};
 
 /// Query parameters for tile streaming over bounding box.
 #[derive(Debug, Deserialize)]
@@ -64,7 +66,7 @@ pub async fn get_tile(
 
     let tile = state
         .tile_service
-        .get_tile_by_id(id)
+        .get_tile_by_id(id, MeanElevationCalculationStrategy)
         .await
         .inspect_err(|err| {
             tracing::error!(error = ?err, "failed to build tile");
@@ -105,7 +107,7 @@ pub async fn stream_tiles(
 
     let tile_stream = state
         .tile_service
-        .stream_tiles_for_bbox(bbox, zoom)
+        .stream_tiles_for_bbox(bbox, zoom, MeanElevationCalculationStrategy)
         .inspect_err(|err| {
             tracing::error!(error = ?err, "failed to create tile stream");
         })?;
