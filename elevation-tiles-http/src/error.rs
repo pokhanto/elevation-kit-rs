@@ -1,6 +1,7 @@
 //! HTTP-facing application errors and response mapping.
 //!
 //! Converts internal service errors into API responses.
+
 use axum::{
     Json,
     http::StatusCode,
@@ -9,52 +10,59 @@ use axum::{
 
 use crate::application::TileServiceError;
 
-#[derive(serde::Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub struct ErrorResponse {
     pub message: String,
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("Invalid bounds")]
     InvalidBounds,
+
     #[error("Invalid zoom level")]
     InvalidZoomLevel,
+
+    #[error("Invalid chunk resolution")]
+    InvalidChunkResolution,
+
     #[error("Tile not found")]
     TileNotFound,
-    #[error("Failed to resolve tiles for bbox")]
+
+    #[error("Failed to resolve tiles")]
     ResolveTiles,
-    #[error("Failed to compute tile elevation")]
-    ComputeTile,
+
+    #[error("Failed to compute tile data")]
+    ComputeTileData,
 }
 
 impl From<TileServiceError> for AppError {
     fn from(value: TileServiceError) -> Self {
         match value {
             TileServiceError::ZoomLevel => AppError::InvalidZoomLevel,
-            TileServiceError::BuildTiles => AppError::ResolveTiles,
+            TileServiceError::ChunkResolution => AppError::InvalidChunkResolution,
             TileServiceError::UnknownTile => AppError::TileNotFound,
-            TileServiceError::Elevation => AppError::ComputeTile,
+            TileServiceError::BuildTiles => AppError::ResolveTiles,
+            TileServiceError::Elevation => AppError::ComputeTileData,
         }
     }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match self {
-            AppError::InvalidBounds => (StatusCode::BAD_REQUEST, "Invalid bounds."),
-            AppError::InvalidZoomLevel => (StatusCode::BAD_REQUEST, "Invalid zoom level."),
-            AppError::TileNotFound => (StatusCode::NOT_FOUND, "Tile not found."),
-            AppError::ResolveTiles => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error."),
-            AppError::ComputeTile => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error."),
+        let status = match self {
+            AppError::InvalidBounds => StatusCode::BAD_REQUEST,
+            AppError::InvalidZoomLevel => StatusCode::BAD_REQUEST,
+            AppError::InvalidChunkResolution => StatusCode::BAD_REQUEST,
+            AppError::TileNotFound => StatusCode::NOT_FOUND,
+            AppError::ResolveTiles => StatusCode::INTERNAL_SERVER_ERROR,
+            AppError::ComputeTileData => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
-        (
-            status,
-            Json(ErrorResponse {
-                message: message.to_string(),
-            }),
-        )
-            .into_response()
+        let body = Json(ErrorResponse {
+            message: self.to_string(),
+        });
+
+        (status, body).into_response()
     }
 }

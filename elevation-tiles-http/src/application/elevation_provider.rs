@@ -26,7 +26,7 @@ pub trait ElevationProvider {
         &self,
         bbox: Bounds,
         hint: Option<ResolutionHint>,
-    ) -> impl Future<Output = Result<BboxElevations, ElevationProviderError>>;
+    ) -> impl Future<Output = Result<BboxElevations, ElevationProviderError>> + Send;
 }
 
 /// Production [`ElevationProvider`] implementation backed by

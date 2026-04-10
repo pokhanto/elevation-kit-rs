@@ -7,12 +7,11 @@ use axum::{
     routing::get,
 };
 use elevation_domain::Bounds;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
-use tokio::time::Instant;
-use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 
-use crate::{AppError, AppState, domain::Tile};
+use crate::{AppError, AppState, domain::ElevationTile};
 
 /// Query parameters for tile streaming over bounding box.
 #[derive(Debug, Deserialize)]
@@ -31,8 +30,8 @@ pub struct TileResponse {
     elevation: Option<f64>,
 }
 
-impl From<Tile> for TileResponse {
-    fn from(value: Tile) -> Self {
+impl From<ElevationTile> for TileResponse {
+    fn from(value: ElevationTile) -> Self {
         Self {
             id: value.id().to_owned(),
             elevation: value.elevation().map(|e| e.0),
@@ -44,7 +43,7 @@ impl From<Tile> for TileResponse {
 #[serde(tag = "type")]
 enum ServerEvent {
     Tile(TileResponse),
-    Error,
+    Error { message: String },
     Done,
 }
 
@@ -62,6 +61,7 @@ pub async fn get_tile(
     Path(id): Path<String>,
 ) -> Result<Json<TileResponse>, AppError> {
     tracing::info!("starting handling get tile");
+
     let tile = state
         .tile_service
         .get_tile_by_id(id)
@@ -89,6 +89,7 @@ pub async fn stream_tiles(
     Query(request): Query<TilesStreamRequest>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, AppError> {
     tracing::info!("starting handling tiles stream");
+
     let TilesStreamRequest {
         zoom,
         min_lon,
@@ -96,76 +97,50 @@ pub async fn stream_tiles(
         max_lon,
         max_lat,
     } = request;
+
     let bbox = Bounds::try_new(min_lon, min_lat, max_lon, max_lat).map_err(|err| {
         tracing::error!(error = ?err, "invalid bbox provided in request");
         AppError::InvalidBounds
     })?;
 
-    let tile_ids = state
+    let tile_stream = state
         .tile_service
-        .get_tile_ids_for_bbox(bbox, zoom)
+        .stream_tiles_for_bbox(bbox, zoom)
         .inspect_err(|err| {
-            tracing::error!(error = ?err, "failed to resolve tile ids for bbox");
+            tracing::error!(error = ?err, "failed to create tile stream");
         })?;
 
-    tracing::debug!(tile_count = tile_ids.len(), "resolved tile ids for stream");
+    let stream = tile_stream
+        .map(|result| match result {
+            Ok(tile) => ServerEvent::Tile(tile.into()),
+            Err(err) => {
+                tracing::error!(error = ?err, "failed to resolve tile in stream");
+                ServerEvent::Error {
+                    message: "failed to resolve tile".to_string(),
+                }
+            }
+        })
+        .chain(futures_util::stream::once(async { ServerEvent::Done }))
+        .map(|payload| {
+            let event_name = match &payload {
+                ServerEvent::Tile(_) => "tile",
+                ServerEvent::Error { .. } => "error",
+                ServerEvent::Done => "done",
+            };
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<ServerEvent>(32);
-
-    tokio::spawn(async move {
-        for tile_id in tile_ids {
-            let started_at = Instant::now();
-
-            let tile = match state.tile_service.get_tile_by_id(tile_id.clone()).await {
-                Ok(tile) => tile,
+            let event = match Event::default().event(event_name).json_data(payload) {
+                Ok(event) => event,
                 Err(err) => {
-                    tracing::error!(tile_id = %tile_id, error = ?err, "failed to build tile in stream");
+                    tracing::error!(error = ?err, "failed to serialize SSE event");
 
-                    if tx.send(ServerEvent::Error).await.is_err() {
-                        tracing::debug!("client disconnected while sending tile error event");
-                        return;
-                    }
-
-                    continue;
+                    Event::default()
+                        .event("error")
+                        .data("Failed to serialize event")
                 }
             };
 
-            tracing::info!(
-                elapsed_ms = started_at.elapsed().as_millis(),
-                "tile resolved"
-            );
-
-            if tx.send(ServerEvent::Tile(tile.into())).await.is_err() {
-                tracing::debug!("client disconnected while sending tile event");
-                return;
-            }
-        }
-
-        if tx.send(ServerEvent::Done).await.is_err() {
-            tracing::debug!("client disconnected before done event");
-        }
-    });
-
-    let stream = ReceiverStream::new(rx).map(|payload| {
-        let event_name = match &payload {
-            ServerEvent::Tile(_) => "tile",
-            ServerEvent::Error => "error",
-            ServerEvent::Done => "done",
-        };
-
-        let event = match Event::default().event(event_name).json_data(payload) {
-            Ok(event) => event,
-            Err(err) => {
-                tracing::error!(error = ?err, "failed to serialize SSE event");
-
-                Event::default()
-                    .event("error")
-                    .data("Failed to serialize event")
-            }
-        };
-
-        Ok(event)
-    });
+            Ok(event)
+        });
 
     Ok(Sse::new(stream))
 }
