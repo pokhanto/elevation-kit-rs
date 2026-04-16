@@ -60,9 +60,12 @@ pub fn read_raster_metadata(path: &Path) -> Result<RasterMetadata, IngestError> 
     })?;
     tracing::debug!(?geo_transform, "geotransform extracted");
 
-    let [min_lon, pixel_width, _, min_lat, _, pixel_height] = geo_transform;
+    // TODO: not north up rasters should be reprojected
+    // NOTE: this assume that raster in north up -
+    // pixel_width is positive, and pixel_height is negative
+    let [min_lon, pixel_width, _, max_lat, _, pixel_height] = geo_transform;
     let max_lon = min_lon + width as f64 * pixel_width;
-    let max_lat = min_lat + height as f64 * pixel_height;
+    let min_lat = max_lat + height as f64 * pixel_height;
 
     let crs = get_crs(&dataset)?;
     tracing::debug!(crs = ?crs, "crs extracted");
@@ -81,6 +84,7 @@ pub fn read_raster_metadata(path: &Path) -> Result<RasterMetadata, IngestError> 
     tracing::info!("metadata extraction completed");
 
     let bounds = Bounds::try_new(min_lon, min_lat, max_lon, max_lat).map_err(|err| {
+        dbg!(&err);
         tracing::error!(error = %err, min_lon, min_lat, max_lon, max_lat, "provided bounds are not valid");
         IngestError::MetadataExtraction
     })?;

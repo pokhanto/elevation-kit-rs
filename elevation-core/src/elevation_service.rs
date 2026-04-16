@@ -233,6 +233,7 @@ where
 
             ElevationServiceError::MetadataLoad
         })?;
+        let datasets_len = datasets.len();
 
         let mut intersections: Vec<(DatasetMetadata, Bounds)> = datasets
             .into_iter()
@@ -244,6 +245,13 @@ where
                     .map(|intersection| (dataset, intersection))
             })
             .collect();
+
+        tracing::info!(
+            "found {} intersections for requested bbox {:?} from {} datasets",
+            intersections.len(),
+            bbox,
+            datasets_len
+        );
 
         let resolution_degrees = match resolution_hint.unwrap_or(ResolutionHint::Highest) {
             ResolutionHint::Highest => intersections
