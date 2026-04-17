@@ -1,6 +1,6 @@
 use elevation_adapters::{FsArtifactStorage, FsMetadataStorage};
+use elevation_core::IngestService;
 use elevation_domain::{Crs, MetadataStorage};
-use elevation_ingest::ingest;
 use std::path::PathBuf;
 use tempfile::tempdir;
 
@@ -16,16 +16,9 @@ async fn ingest_stores_artifact_and_metadata_for_raster_fixture() {
 
     let artifact_storage = FsArtifactStorage::new(base_dir.clone());
     let metadata_storage = FsMetadataStorage::new(base_dir.clone(), metadata_registry_name.into());
+    let service = IngestService::new(target_crs.clone(), artifact_storage, metadata_storage);
 
-    ingest(
-        dataset_id.clone(),
-        source_path,
-        target_crs.clone(),
-        artifact_storage,
-        metadata_storage,
-    )
-    .await
-    .unwrap();
+    service.run(dataset_id.clone(), source_path).await.unwrap();
 
     let metadata_storage = FsMetadataStorage::new(base_dir, metadata_registry_name.into());
 

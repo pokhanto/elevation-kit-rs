@@ -2,8 +2,8 @@ use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use clap::{Parser, ValueEnum};
 use elevation_adapters::{FsArtifactStorage, FsMetadataStorage, S3ArtifactStorage};
+use elevation_core::IngestService;
 use elevation_domain::Crs;
-use elevation_ingest::ingest;
 use std::path::PathBuf;
 
 mod telemetry;
@@ -73,15 +73,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match args.artifact_backend {
         ArtifactBackend::Fs => {
             let artifact_storage = FsArtifactStorage::new(args.base_dir);
+            let ingest_service =
+                IngestService::new(Crs::new(CRS), artifact_storage, metadata_storage);
 
-            ingest(
-                args.dataset_id,
-                args.source_dataset_path,
-                Crs::new(CRS),
-                artifact_storage,
-                metadata_storage,
-            )
-            .await?;
+            ingest_service
+                .run(args.dataset_id, args.source_dataset_path)
+                .await?;
         }
         ArtifactBackend::S3 => {
             let bucket = args
@@ -93,16 +90,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let artifact_storage = S3ArtifactStorage::new(s3_client, bucket, args.s3_prefix);
 
-            ingest(
-                args.dataset_id,
-                args.source_dataset_path,
-                Crs::new(CRS),
-                artifact_storage,
-                metadata_storage,
-            )
-            .await?;
+            let ingest_service =
+                IngestService::new(Crs::new(CRS), artifact_storage, metadata_storage);
+
+            ingest_service
+                .run(args.dataset_id, args.source_dataset_path)
+                .await?;
         }
-    }
+    };
 
     Ok(())
 }

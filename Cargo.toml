@@ -3,7 +3,6 @@ resolver = "2"
 members = [
   "elevation-core",
   "elevation-domain",
-  "elevation-ingest",
   "elevation-prepare-cli",
   "elevation-adapters",
   "elevation-profile-grpc",

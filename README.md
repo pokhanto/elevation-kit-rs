@@ -33,17 +33,16 @@ let s3_client = Client::new(&aws_config);
 let bucket_name = "elevation_geotiffs";
 let artifact_storage = S3ArtifactStorage::new(s3_client, bucket_name, None);
 
+// Ingest service 
+let target_crs = Crs::new("EPSG:4326");
+let ingest_service =
+    IngestService::new(target_crs, artifact_storage, metadata_storage);
+
 let dataset_id = "unique_dataset_id";
 let source_raster_path = PathBuf::from("data/file.tif");
-let target_crs = Crs::new("EPSG:4326");
-
-ingest(
-  dataset_id, 
-  source_raster_path, 
-  target_crs, 
-  metadata_storage, 
-  artifact_storage
-)?;
+ingest_service
+    .run(dataset_id, source_dataset_path)
+    .await?;
 ```
 
 ### 2. Elevation querying
@@ -61,7 +60,9 @@ let metadata_storage = FsMetadataStorage::new(metadata_dir, metadata_registry_na
 // S3 Raster reader using GDAL vsis3
 let raster_reader = GdalRasterReader::new(GdalS3ArtifactResolver);
 
+// Elevation service
 let elevation_service = ElevationService::new(metadata_storage, raster_reader);
+
 let elevation_at_point = elevation_service.elevation_at_point(30.5234, 50.4501)?;
 ```
 
