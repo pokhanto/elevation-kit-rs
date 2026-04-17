@@ -1,0 +1,16 @@
+[package]
+name = "elevation-prepare-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elevation-adapters = { path = "../elevation-adapters" }
+elevation-domain = { path = "../elevation-domain" }
+elevation-core = { path = "../elevation-core" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { version = "4.6.0", features = ["derive"] }
+aws-sdk-s3 = "1.129.0"
+aws-config = "1.8.15"

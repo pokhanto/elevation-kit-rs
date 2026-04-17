@@ -1,0 +1,21 @@
+[package]
+name = "elevation-adapters"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elevation-domain = { path = "../elevation-domain" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true, features = [
+  "macros",
+  "fs",
+  "io-util",
+  "rt-multi-thread",
+] }
+gdal = "0.19.0"
+aws-sdk-s3 = "1.129.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"

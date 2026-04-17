@@ -1,0 +1,25 @@
+[package]
+name = "elevation-tiles-http"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elevation-adapters = { path = "../elevation-adapters" }
+elevation-domain = { path = "../elevation-domain" }
+elevation-core = { path = "../elevation-core" }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+serde = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tracing-subscriber = { workspace = true }
+geo = { workspace = true }
+futures = "0.3.32"
+axum = { version = "0.8.8" }
+futures-util = "0.3.32"
+tokio-stream = "0.1.18"
+tower-http = { version = "0.6.8", features = ["trace", "cors"] }
+async-stream = "0.3.6"
+h3o = { version = "0.9.4", features = ["geo"] }
+rayon = "1.11.0"
+dotenvy = "0.15.7"
+moka = { version = "0.12.15", features = ["future"] }
