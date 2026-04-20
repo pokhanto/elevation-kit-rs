@@ -6,8 +6,8 @@ use axum::{
     response::sse::{Event, Sse},
     routing::get,
 };
-use elevation_domain::Bounds;
 use futures_util::StreamExt;
+use georaster_domain::Bounds;
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 

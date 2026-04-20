@@ -1,6 +1,6 @@
 //! Raster window, raster reading, and raster payload types.
 
-use crate::storage::ArtifactLocator;
+use crate::{Bounds, storage::ArtifactLocator};
 
 /// Position of window inside raster.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -168,22 +168,6 @@ impl<T> RasterWindowData<T> {
     }
 }
 
-/// Hint used to select an output raster resolution.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ResolutionHint {
-    /// Use highest available resolution.
-    Highest,
-    /// Use lowest available resolution.
-    Lowest,
-    /// Use explicit target resolution in degrees.
-    Degrees {
-        /// Target longitudinal resolution.
-        lon_resolution: f64,
-        /// Target latitudinal resolution.
-        lat_resolution: f64,
-    },
-}
-
 /// Errors returned by raster readers.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RasterReaderError {
@@ -215,6 +199,23 @@ pub trait RasterReader<T> {
         locator: &ArtifactLocator,
         raster_window: RasterReadWindow,
     ) -> impl Future<Output = Result<RasterWindowData<T>, RasterReaderError>> + Send;
+}
+
+/// Raster value in the dataset's units.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RasterValue(pub f64);
+
+/// Raster data returned for a bounding box request.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BboxRasterValues {
+    /// Requested bounding box.
+    pub bbox: Bounds,
+    /// Raster width in samples.
+    pub width: usize,
+    /// Raster height in samples.
+    pub height: usize,
+    /// Raster values in row-major order.
+    pub values: Vec<Option<RasterValue>>,
 }
 
 #[cfg(test)]

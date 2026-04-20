@@ -1,4 +1,4 @@
-use elevation_domain::{
+use georaster_domain::{
     ArtifactLocator, ArtifactResolveError, ArtifactResolver, ResolvedArtifactPath,
 };
 

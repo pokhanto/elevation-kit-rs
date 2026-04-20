@@ -16,7 +16,7 @@ pub struct DatasetMetadata {
     pub raster: RasterMetadata,
 }
 
-/// Raster metadata required for reading and serving elevations.
+/// Raster metadata required for reading and serving data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RasterMetadata {
     /// Raster coordinate reference system.

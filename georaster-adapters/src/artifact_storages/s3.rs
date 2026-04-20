@@ -1,9 +1,8 @@
 //! S3-backed artifact storage.
 
 use std::path::Path;
-
 use aws_sdk_s3::Client;
-use elevation_domain::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
+use georaster_domain::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
 
 #[derive(Debug, Clone)]
 pub struct S3ArtifactStorage {

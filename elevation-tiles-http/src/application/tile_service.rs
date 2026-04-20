@@ -1,8 +1,9 @@
 //! Tile service for resolving H3 tiles and their aggregated elevations.
 
-use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
 use futures::Stream;
 use geo::{BoundingRect, Contains, Intersects, Point, Polygon};
+use georaster_core::GeorasterSampling;
+use georaster_domain::{BboxRasterValues, Bounds};
 use h3o::{
     Resolution,
     geom::{ContainmentMode, TilerBuilder},
@@ -21,11 +22,9 @@ use crate::{
 /// Controls split of requested bounding box to smaller chunks.
 const MAX_CELLS_PER_CHUNK: usize = 25000;
 
-// TODO: extract this mapping into config/service.
-// Or, even better - rework to not rely on specific resolution
-const RESOLUTION_HINT: ResolutionHint = ResolutionHint::Degrees {
-    lon_resolution: 0.005,
-    lat_resolution: 0.005,
+const GEORASTER_SAMPLING: GeorasterSampling = GeorasterSampling::Resolution {
+    x_resolution: 0.005,
+    y_resolution: 0.005,
 };
 
 /// Errors returned by [`TileService`].
@@ -98,7 +97,7 @@ where
 
         let elevations = self
             .elevation_provider
-            .elevations_in_bbox(tile_bounding_rect.into(), Some(ResolutionHint::Highest))
+            .elevations_in_bbox(tile_bounding_rect.into(), Some(GEORASTER_SAMPLING))
             .await
             .map_err(|err| {
                 tracing::debug!(error = ?err, "failed to get elevations for tile bbox");
@@ -159,7 +158,7 @@ where
         let tile_ids = get_tile_ids_for_bbox(bbox, zoom_level)?;
 
         // split requested bbox in chunks to avoid loading whole area at once
-        let chunks = split_bbox_into_chunks(bbox, RESOLUTION_HINT, self.max_cells_per_chunk)?;
+        let chunks = split_bbox_into_chunks(bbox, GEORASTER_SAMPLING, self.max_cells_per_chunk)?;
 
         tracing::info!(chunks_count = chunks.len(), "got bbox chunks count");
 
@@ -271,7 +270,7 @@ where
 
                 // fetch elevations only for tiles still missing from cache
                 let chunk_elevations = match elevation_provider
-                    .elevations_in_bbox(chunk.bounds, Some(RESOLUTION_HINT))
+                    .elevations_in_bbox(chunk.bounds, Some(GEORASTER_SAMPLING))
                     .await
                 {
                     Ok(v) => v,
@@ -397,7 +396,7 @@ pub fn get_tile_ids_for_bbox(
 
 /// Updates only selected tiles from one chunk.
 fn update_selected_tile_states_from_chunk<'a, S>(
-    elevations: &BboxElevations,
+    elevations: &BboxRasterValues,
     tile_ids: impl IntoIterator<Item = &'a str>,
     tile_states: &mut HashMap<String, TileAggregationState<S::State>>,
     strategy: &S,
@@ -482,14 +481,14 @@ fn update_selected_tile_states_from_chunk<'a, S>(
 /// Splits requested bbox in chunks.
 fn split_bbox_into_chunks(
     bbox: Bounds,
-    resolution_hint: ResolutionHint,
+    sampling: GeorasterSampling,
     max_cells_per_chunk: usize,
 ) -> Result<Vec<Bounds>, TileServiceError> {
-    let (lon_resolution, lat_resolution) = match resolution_hint {
-        ResolutionHint::Degrees {
-            lon_resolution,
-            lat_resolution,
-        } => (lon_resolution, lat_resolution),
+    let (lon_resolution, lat_resolution) = match sampling {
+        GeorasterSampling::Resolution {
+            x_resolution,
+            y_resolution,
+        } => (x_resolution, y_resolution),
         _ => return Err(TileServiceError::ChunkResolution),
     };
 

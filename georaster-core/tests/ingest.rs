@@ -1,6 +1,6 @@
-use elevation_adapters::{FsArtifactStorage, FsMetadataStorage};
-use elevation_core::IngestService;
-use elevation_domain::{Crs, MetadataStorage};
+use georaster_adapters::{FsArtifactStorage, FsMetadataStorage};
+use georaster_core::IngestService;
+use georaster_domain::{Crs, MetadataStorage};
 use std::path::PathBuf;
 use tempfile::tempdir;
 

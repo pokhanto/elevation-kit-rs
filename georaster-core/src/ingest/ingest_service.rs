@@ -4,11 +4,11 @@
 //! reprojecting them, converting them to COG, extracting metadata,
 //! and storing artifacts and metadata.
 
-use elevation_domain::{
+use gdal::{Dataset, Metadata};
+use georaster_domain::{
     ArtifactStorage, BlockSize, Bounds, Crs, DatasetMetadata, GeoTransform, MetadataStorage,
     RasterMetadata,
 };
-use gdal::{Dataset, Metadata};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 

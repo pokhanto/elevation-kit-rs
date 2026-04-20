@@ -1,10 +1,12 @@
-use elevation_domain::{
-    BboxElevations, Bounds, DatasetMetadata, Elevation, MetadataStorage, RasterReadWindow,
-    RasterReader, RasterSize, ResolutionHint, WindowPlacement,
+use georaster_domain::{
+    BboxRasterValues, Bounds, DatasetMetadata, MetadataStorage, RasterReadWindow, RasterReader,
+    RasterSize, RasterValue, WindowPlacement,
 };
 
+use crate::GeorasterSampling;
+
 #[derive(Clone, Debug, PartialEq, thiserror::Error)]
-pub enum ElevationServiceError {
+pub enum GeorasterServiceError {
     #[error("Failed to load dataset metadata")]
     MetadataLoad,
 
@@ -18,15 +20,15 @@ pub enum ElevationServiceError {
     RasterRead,
 }
 
-/// Service for resolving elevations from raster data using dataset metadata.
+/// Service for resolving raster values from raster data using dataset metadata.
 #[derive(Debug, Clone)]
-pub struct ElevationService<M, R> {
+pub struct GeorasterService<M, R> {
     metadata_storage: M,
     raster_reader: R,
 }
 
-impl<M, R> ElevationService<M, R> {
-    /// Creates new elevation service with metadata storage and raster reader.
+impl<M, R> GeorasterService<M, R> {
+    /// Creates new georaster service with metadata storage and raster reader.
     pub fn new(metadata_storage: M, raster_reader: R) -> Self {
         Self {
             metadata_storage,
@@ -35,203 +37,182 @@ impl<M, R> ElevationService<M, R> {
     }
 }
 
-impl<M, R> ElevationService<M, R>
+impl<M, R> GeorasterService<M, R>
 where
     M: MetadataStorage,
     R: RasterReader<f64>,
 {
-    /// Returns elevation at given geographic point.
+    /// Returns raster value at requested geographic point.
     ///
     /// Service:
     /// - loads available dataset metadata,
-    /// - selects dataset whose bounds contain requested point,
-    /// - converts geographic coordinate into raster pixel coordinates,
-    /// - reads single raster cell,
-    /// - returns its value as [`Elevation`].
+    /// - finds datasets whose bounds contain requested point,
+    /// - selects one dataset to read from,
+    /// - converts geographic coordinate into raster row/column,
+    /// - reads a single raster cell from selected dataset,
+    /// - returns its value unless it matches dataset `nodata`.
     ///
-    /// If no dataset contains point, or if resolved raster value equals
-    /// dataset's `nodata` value, this method returns `Ok(None)`.
+    /// When multiple datasets contain point current implementation
+    /// selects highest resolution dataset.
     ///
     /// # Parameters
     ///
-    /// - `lon`: Longitude of requested point.
-    /// - `lat`: Latitude of requested point.
+    /// - `lon`: Longitude / X coordinate of requested point in dataset
+    ///   coordinate space.
+    /// - `lat`: Latitude / Y coordinate of requested point in dataset
+    ///   coordinate space.
     ///
     /// # Returns
     ///
-    /// Returns:
-    /// - `Ok(Some(Elevation))` when valid elevation value is found,
-    /// - `Ok(None)` when:
-    ///   - no dataset covers point,
-    ///   - point resolves outside raster bounds,
-    ///   - raster value is `nodata`,
-    /// - `Err(ElevationServiceError)` on metadata or raster read failure.
+    /// - `Ok(Some(RasterValue))` if a dataset contains point and a valid
+    ///   raster value is found.
+    /// - `Ok(None)` if no dataset contains point mapped raster cell
+    ///   is outside raster bounds or resulting value equals dataset
+    ///   `nodata`.
     ///
     /// # Errors
     ///
-    /// Returns [`ElevationServiceError::Metadata`] if dataset metadata cannot be loaded.
-    ///
-    /// Returns [`ElevationServiceError::Raster`] if raster cell cannot be read.
+    /// Returns:
+    /// - [`GeorasterServiceError::MetadataLoad`] if dataset metadata cannot be loaded,
+    /// - [`GeorasterServiceError::RasterRead`] if raster data cannot be read.
     ///
     /// # Notes
     ///
-    /// When multiple datasets contain requested point, dataset selection is
-    /// delegated to internal dataset resolution logic.
+    /// Current implementation assumes axis-aligned rasters in the same
+    /// coordinate space as dataset metadata.
     ///
     /// # Example
     ///
     /// ```ignore
-    /// let elevation = service.elevation_at_point(30.5234, 50.4501)?;
+    /// let value = service.raster_data_at_point(30.5234, 50.4501).await?;
     ///
-    /// match elevation {
-    ///     Some(value) => println!("Elevation: {}", value.0),
-    ///     None => println!("No elevation data for point"),
+    /// if let Some(value) = value {
+    ///     println!("Raster value: {}", value.0);
     /// }
     /// ```
     #[tracing::instrument(skip(self), fields(lon, lat))]
-    pub async fn elevation_at_point(
+    pub async fn raster_data_at_point(
         &self,
         lon: f64,
         lat: f64,
-    ) -> Result<Option<Elevation>, ElevationServiceError> {
-        tracing::info!(lon, lat, "starting getting elevation at point");
+    ) -> Result<Option<RasterValue>, GeorasterServiceError> {
+        tracing::info!(lon, lat, "starting point raster query");
+
         let datasets = self.metadata_storage.load_metadata().await.map_err(|err| {
             tracing::error!(
                 error = %err,
-                lon = lon,
-                lat = lat,
+                lon,
+                lat,
                 "failed to load dataset metadata"
             );
 
-            ElevationServiceError::MetadataLoad
+            GeorasterServiceError::MetadataLoad
         })?;
-        let dataset = match get_dataset_for_point(datasets, lon, lat) {
-            Some(dataset) => dataset,
-            None => return Ok(None),
-        };
-        tracing::info!(dataset_id = %dataset.dataset_id, "dataset selected");
 
-        let pixel_placement = match lonlat_to_raster_coord(&dataset, lon, lat) {
-            Some(pixel) => pixel,
-            None => return Ok(None),
+        let Some(dataset) = get_dataset_for_point(datasets, lon, lat) else {
+            tracing::debug!(lon, lat, "no dataset contains requested point");
+            return Ok(None);
         };
 
-        tracing::info!(
-            col = pixel_placement.column(),
-            row = pixel_placement.row(),
-            "pixel resolved"
-        );
+        let Some(placement) = lonlat_to_raster_coord(&dataset, lon, lat) else {
+            tracing::debug!(
+                dataset_id = %dataset.dataset_id,
+                lon,
+                lat,
+                "failed to map point into raster coordinates"
+            );
+            return Ok(None);
+        };
 
-        let elevation_data = self
+        let raster_window =
+            RasterReadWindow::new(placement, RasterSize::new(1, 1), RasterSize::new(1, 1));
+
+        let raster_data = self
             .raster_reader
-            .read_window(
-                &dataset.artifact_path,
-                RasterReadWindow::new_point(pixel_placement),
-            )
+            .read_window(&dataset.artifact_path, raster_window)
             .await
             .map_err(|err| {
                 tracing::error!(
                     error = %err,
                     dataset_id = %dataset.dataset_id,
                     artifact = %dataset.artifact_path,
-                    lon = lon,
-                    lat = lat,
-                    col = pixel_placement.column(),
-                    row = pixel_placement.row(),
-                    "failed to read raster pixel"
+                    lon,
+                    lat,
+                    raster_window = ?raster_window,
+                    "failed to read raster value at point"
                 );
 
-                ElevationServiceError::RasterRead
+                GeorasterServiceError::RasterRead
             })?;
 
-        let elevation_value = elevation_data.get(0, 0).copied();
+        let value = raster_data.get(0, 0).copied();
 
-        if dataset.raster.nodata == elevation_value {
-            tracing::info!("elevation at point resolved to be nodata");
-            return Ok(None);
+        match value {
+            Some(value) if dataset.raster.nodata == Some(value) => Ok(None),
+            Some(value) => Ok(Some(RasterValue(value))),
+            None => Ok(None),
         }
-
-        tracing::info!(elevation = ?elevation_value, "elevation at point resolved");
-        Ok(elevation_value.map(Elevation))
     }
 
-    /// Returns grid of elevations for requested bounding box.
+    /// Returns a raster values grid for requested bounding box.
     ///
     /// Service:
     /// - loads available dataset metadata,
     /// - finds all datasets whose bounds intersect requested `bbox`,
-    /// - selects output resolution using `resolution_hint`,
-    /// - reads corresponding raster windows,
-    /// - merges them into one resulting elevation grid.
+    /// - resolves output grid dimensions from `sampling`,
+    /// - reads corresponding raster windows from contributing datasets,
+    /// - merges them into one resulting raster values grid.
     ///
-    /// Output values is grid and returned in order:
+    /// Result values are stored in row-major order:
     /// `values[row * width + column]`.
     ///
-    /// When multiple datasets overlap lower-resolution datasets are processed first,
-    /// so higher-resolution datasets can overwrite them in result.
+    /// When multiple datasets overlap, lower-resolution datasets are processed
+    /// first so higher-resolution datasets can overwrite them in result.
     ///
-    /// `ResolutionHint` controls resolution(size) of resulting grid:
-    /// - `Highest` picks the finest resolution among intersecting datasets,
-    /// - `Lowest` picks the coarsest resolution among intersecting datasets,
-    /// - `Degrees { .. }` uses explicit requested resolution.
-    ///
-    /// Cells with raster value equals dataset's `nodata` are left empty (`None`).
+    /// Cells whose raster value equals dataset `nodata` remain empty (`None`).
     ///
     /// # Parameters
     ///
     /// - `bbox`: Requested geographic area in dataset coordinate space.
-    /// - `resolution_hint`: Optional hint controlling resolution(size) of resulting grid.
+    /// - `sampling`: Optional policy controlling output grid size. If `None`
+    ///   service uses its default sampling policy - preview.
     ///
     /// # Returns
     ///
-    /// [`BboxElevations`] containing:
+    /// [`BboxRasterValues`] containing:
     /// - requested bounding box,
     /// - resulting grid width,
     /// - resulting grid height,
-    /// - flattened elevation values.
+    /// - flattened raster values.
     ///
     /// # Errors
     ///
-    /// Returns [`ElevationServiceError::Metadata`] if:
-    /// - dataset metadata cannot be loaded,
-    /// - resolution cannot be resolved from intersecting datasets,
-    /// - raster processing plan cannot be created.
-    ///
-    /// Returns [`ElevationServiceError::Raster`] if raster data cannot be read.
+    /// Returns:
+    /// - [`GeorasterServiceError::MetadataLoad`] if dataset metadata cannot be loaded,
+    /// - [`GeorasterServiceError::RasterPlan`] if a raster processing plan cannot be built,
+    /// - [`GeorasterServiceError::RasterRead`] if raster data cannot be read.
     ///
     /// # Notes
     ///
-    /// Current implementation assumes resolution in geographic degree units.
-    /// This may not be correct for all CRS types.
-    ///
-    /// # Example
-    ///
-    /// ```ignore
-    /// let elevations = service.elevations_in_bbox(
-    ///     Bounds::new(30.0, 50.0, 31.0 51.0),
-    ///     Some(ResolutionHint::Highest),
-    /// )?;
-    ///
-    /// assert!(elevations.width > 0);
-    /// assert!(elevations.height > 0);
-    /// ```
-    #[tracing::instrument(skip(self), fields(bbox, resolution))]
-    pub async fn elevations_in_bbox(
+    /// Current implementation assumes axis-aligned rasters and uses bounding-box based
+    /// processing in the same coordinate space as dataset metadata.
+    #[tracing::instrument(skip(self), fields(bbox, sampling))]
+    pub async fn raster_data_in_bbox(
         &self,
         bbox: Bounds,
-        resolution_hint: Option<ResolutionHint>,
-    ) -> Result<BboxElevations, ElevationServiceError> {
-        tracing::info!(bbox = ?bbox, resolution_hint = ?resolution_hint, "starting getting elevations in bbox with resolution");
+        sampling: Option<GeorasterSampling>,
+    ) -> Result<BboxRasterValues, GeorasterServiceError> {
+        tracing::info!(bbox = ?bbox, sampling = ?sampling, "starting getting raster data in bbox with resolution");
 
         let datasets = self.metadata_storage.load_metadata().await.map_err(|err| {
             tracing::error!(
                 error = %err,
                 bbox = ?bbox,
-                resolution_hint = ?resolution_hint,
+                sampling = ?sampling,
                 "failed to load dataset metadata"
             );
 
-            ElevationServiceError::MetadataLoad
+            GeorasterServiceError::MetadataLoad
         })?;
         let datasets_len = datasets.len();
 
@@ -253,48 +234,9 @@ where
             datasets_len
         );
 
-        let resolution_degrees = match resolution_hint.unwrap_or(ResolutionHint::Highest) {
-            ResolutionHint::Highest => intersections
-                .iter()
-                .map(|(dataset, _)| {
-                    (
-                        dataset.raster.geo_transform.pixel_width.abs(),
-                        dataset.raster.geo_transform.pixel_height.abs(),
-                    )
-                })
-                .min_by(|(lon_a, lat_a), (lon_b, lat_b)| {
-                    let area_a = lon_a * lat_a;
-                    let area_b = lon_b * lat_b;
-                    area_a
-                        .partial_cmp(&area_b)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .ok_or(ElevationServiceError::Resolution)?,
-            ResolutionHint::Lowest => intersections
-                .iter()
-                .map(|(dataset, _)| {
-                    (
-                        dataset.raster.geo_transform.pixel_width.abs(),
-                        dataset.raster.geo_transform.pixel_height.abs(),
-                    )
-                })
-                .max_by(|(lon_a, lat_a), (lon_b, lat_b)| {
-                    let area_a = lon_a * lat_a;
-                    let area_b = lon_b * lat_b;
-                    area_a
-                        .partial_cmp(&area_b)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .ok_or(ElevationServiceError::Resolution)?,
-            ResolutionHint::Degrees {
-                lon_resolution,
-                lat_resolution,
-            } => (lon_resolution, lat_resolution),
-        };
-
-        let width = ((bbox.max_lon() - bbox.min_lon()) / resolution_degrees.0).ceil() as usize;
-        let height = ((bbox.max_lat() - bbox.min_lat()) / resolution_degrees.1).ceil() as usize;
-
+        let (width, height) = sampling
+            .unwrap_or(GeorasterSampling::Preview)
+            .bbox_dimensions(&bbox);
         let mut values = vec![None; width * height];
         let mut covered = vec![0_u8; width * height];
 
@@ -313,7 +255,7 @@ where
         for (dataset, intersection) in intersections {
             let (raster_read_window, target_placement) =
                 create_raster_processing_plan(&intersection, &bbox, &dataset, width, height)
-                    .ok_or(ElevationServiceError::RasterPlan)?;
+                    .ok_or(GeorasterServiceError::RasterPlan)?;
 
             let target_width = raster_read_window.target_size().width();
             let target_height = raster_read_window.target_size().height();
@@ -365,7 +307,7 @@ where
                         "failed to read raster window"
                     );
 
-                    ElevationServiceError::RasterRead
+                    GeorasterServiceError::RasterRead
                 })?;
 
             for row in 0..raster_data.target_height() {
@@ -407,14 +349,14 @@ where
                             continue;
                         }
 
-                        values[target_index] = Some(Elevation(value));
+                        values[target_index] = Some(RasterValue(value));
                         covered[target_index] = 1;
                     }
                 }
             }
         }
 
-        Ok(BboxElevations {
+        Ok(BboxRasterValues {
             bbox,
             width,
             height,
@@ -428,13 +370,19 @@ fn get_dataset_for_point(
     lon: f64,
     lat: f64,
 ) -> Option<DatasetMetadata> {
-    // TODO: consider filter by quality too
-    let mut filtered: Vec<DatasetMetadata> = datasets
+    datasets
         .into_iter()
         .filter(|ds| ds.raster.bounds.contains_point(lon, lat))
-        .collect();
+        .min_by(|a, b| {
+            let a_area = a.raster.geo_transform.pixel_width.abs()
+                * a.raster.geo_transform.pixel_height.abs();
+            let b_area = b.raster.geo_transform.pixel_width.abs()
+                * b.raster.geo_transform.pixel_height.abs();
 
-    filtered.pop()
+            a_area
+                .partial_cmp(&b_area)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
 
 /// Converts geographic coordinate into raster column and row, based on metadata.
@@ -448,8 +396,8 @@ fn lonlat_to_raster_coord(
 ) -> Option<WindowPlacement> {
     let gt = &metadata.raster.geo_transform;
 
-    let col = ((lon - gt.origin_lon) / gt.pixel_width).floor().abs();
-    let row = ((lat - gt.origin_lat) / gt.pixel_height).floor().abs();
+    let col = ((lon - gt.origin_lon) / gt.pixel_width).floor();
+    let row = ((lat - gt.origin_lat) / gt.pixel_height).floor();
 
     if !col.is_finite() || !row.is_finite() {
         tracing::debug!(
@@ -491,7 +439,7 @@ fn lonlat_to_raster_coord(
     Some(WindowPlacement::new(col, row))
 }
 
-/// Builds raster read window and target placement for an intersecting bbox.
+/// Builds raster read window and target placement for intersecting bbox.
 ///
 /// Returns `None` when source or target coordinates cannot be mapped to valid window.
 fn create_raster_processing_plan(
@@ -602,10 +550,9 @@ mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
 
-    use elevation_domain::{
+    use georaster_domain::{
         ArtifactLocator, BlockSize, Bounds, Crs, DatasetMetadata, GeoTransform, MetadataStorage,
         MetadataStorageError, RasterMetadata, RasterReader, RasterReaderError, RasterWindowData,
-        ResolutionHint,
     };
 
     #[derive(Clone, Default)]
@@ -633,11 +580,8 @@ mod tests {
 
     #[derive(Debug, Clone)]
     struct FakeRasterReaderData {
-        /// Expected to be passed by service to raster reader
         artifact_path: String,
-        /// Expected to be passed by service to raster reader
         window: RasterReadWindow,
-        /// Result to return from fake raster reader
         result: RasterWindowData<f64>,
     }
 
@@ -728,7 +672,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn elevations_in_bbox_returns_empty_grid_when_no_dataset_intersects() {
+    async fn raster_data_in_bbox_returns_empty_grid_when_no_dataset_intersects() {
         let requested_bbox = bbox(0.0, 0.0, 2.0, 2.0);
 
         let metadata = FakeMetadataStorage {
@@ -744,14 +688,14 @@ mod tests {
         };
 
         let raster = FakeRasterReader::default();
-        let service = ElevationService::new(metadata, raster.clone());
+        let service = GeorasterService::new(metadata, raster.clone());
 
         let result = service
-            .elevations_in_bbox(
+            .raster_data_in_bbox(
                 requested_bbox,
-                Some(ResolutionHint::Degrees {
-                    lon_resolution: 1.0,
-                    lat_resolution: 1.0,
+                Some(GeorasterSampling::Resolution {
+                    x_resolution: 1.0,
+                    y_resolution: 1.0,
                 }),
             )
             .await
@@ -765,7 +709,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn elevations_in_bbox_returns_values_from_single_covering_dataset() {
+    async fn raster_data_in_bbox_returns_values_from_single_covering_dataset() {
         let requested_bbox = bbox(0.0, 0.0, 2.0, 2.0);
 
         let metadata = FakeMetadataStorage {
@@ -788,14 +732,14 @@ mod tests {
             ..Default::default()
         };
 
-        let service = ElevationService::new(metadata, raster.clone());
+        let service = GeorasterService::new(metadata, raster.clone());
 
         let result = service
-            .elevations_in_bbox(
+            .raster_data_in_bbox(
                 requested_bbox,
-                Some(ResolutionHint::Degrees {
-                    lon_resolution: 1.0,
-                    lat_resolution: 1.0,
+                Some(GeorasterSampling::Resolution {
+                    x_resolution: 1.0,
+                    y_resolution: 1.0,
                 }),
             )
             .await
@@ -807,10 +751,10 @@ mod tests {
         assert_eq!(
             result.values,
             vec![
-                Some(Elevation(1.0)),
-                Some(Elevation(2.0)),
-                Some(Elevation(3.0)),
-                Some(Elevation(4.0)),
+                Some(RasterValue(1.0)),
+                Some(RasterValue(2.0)),
+                Some(RasterValue(3.0)),
+                Some(RasterValue(4.0)),
             ]
         );
         assert_eq!(
@@ -820,7 +764,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn elevations_in_bbox_merges_disjoint_dataset_contributions() {
+    async fn raster_data_in_bbox_merges_disjoint_dataset_contributions() {
         let requested_bbox = bbox(0.0, 0.0, 4.0, 2.0);
 
         let left = dataset(
@@ -874,14 +818,14 @@ mod tests {
             ..Default::default()
         };
 
-        let service = ElevationService::new(metadata, raster);
+        let service = GeorasterService::new(metadata, raster);
 
         let result = service
-            .elevations_in_bbox(
+            .raster_data_in_bbox(
                 requested_bbox,
-                Some(ResolutionHint::Degrees {
-                    lon_resolution: 1.0,
-                    lat_resolution: 1.0,
+                Some(GeorasterSampling::Resolution {
+                    x_resolution: 1.0,
+                    y_resolution: 1.0,
                 }),
             )
             .await
@@ -892,20 +836,20 @@ mod tests {
         assert_eq!(
             result.values,
             vec![
-                Some(Elevation(10.0)),
-                Some(Elevation(10.0)),
-                Some(Elevation(20.0)),
-                Some(Elevation(20.0)),
-                Some(Elevation(10.0)),
-                Some(Elevation(10.0)),
-                Some(Elevation(20.0)),
-                Some(Elevation(20.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(20.0)),
+                Some(RasterValue(20.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(20.0)),
+                Some(RasterValue(20.0)),
             ]
         );
     }
 
     #[tokio::test]
-    async fn elevations_in_bbox_does_not_overwrite_real_value_with_nodata() {
+    async fn raster_data_in_bbox_does_not_overwrite_real_value_with_nodata() {
         let requested_bbox = bbox(0.0, 0.0, 2.0, 2.0);
 
         let low_quality = dataset("low", "low.tif", requested_bbox, 1.0, -1.0, None);
@@ -952,14 +896,14 @@ mod tests {
             ..Default::default()
         };
 
-        let service = ElevationService::new(metadata, raster);
+        let service = GeorasterService::new(metadata, raster);
 
         let result = service
-            .elevations_in_bbox(
+            .raster_data_in_bbox(
                 requested_bbox,
-                Some(ResolutionHint::Degrees {
-                    lon_resolution: 1.0,
-                    lat_resolution: 1.0,
+                Some(GeorasterSampling::Resolution {
+                    x_resolution: 1.0,
+                    y_resolution: 1.0,
                 }),
             )
             .await
@@ -970,141 +914,66 @@ mod tests {
         assert_eq!(
             result.values,
             vec![
-                Some(Elevation(10.0)),
-                Some(Elevation(10.0)),
-                Some(Elevation(10.0)),
-                Some(Elevation(10.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(10.0)),
+                Some(RasterValue(10.0)),
             ]
         );
     }
 
     #[tokio::test]
-    async fn elevations_in_bbox_uses_highest_resolution_hint() {
+    async fn raster_data_in_bbox_uses_exact_output_size() {
         let requested_bbox = bbox(0.0, 0.0, 4.0, 4.0);
 
-        let low = dataset("low", "low.tif", requested_bbox, 2.0, -2.0, None);
-        let high = dataset("high", "high.tif", requested_bbox, 1.0, -1.0, None);
-
         let metadata = FakeMetadataStorage {
-            datasets: vec![low, high],
+            datasets: vec![dataset("ds-1", "a.tif", requested_bbox, 1.0, -1.0, None)],
             should_fail: false,
         };
 
-        let placement = WindowPlacement::new(0, 0);
-
-        let low_raster_read_window =
-            RasterReadWindow::new(placement, RasterSize::new(2, 2), RasterSize::new(4, 4));
-
-        let high_raster_read_window =
-            RasterReadWindow::new(placement, RasterSize::new(4, 4), RasterSize::new(4, 4));
-
-        let raster = FakeRasterReader {
-            responses: vec![
-                FakeRasterReaderData {
-                    artifact_path: "low.tif".to_string(),
-                    window: low_raster_read_window,
-                    result: window_data(
-                        low_raster_read_window,
-                        vec![
-                            10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0,
-                            10.0, 10.0, 10.0, 10.0,
-                        ],
-                    ),
-                },
-                FakeRasterReaderData {
-                    artifact_path: "high.tif".to_string(),
-                    window: high_raster_read_window,
-                    result: window_data(
-                        high_raster_read_window,
-                        vec![
-                            20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0,
-                            20.0, 20.0, 20.0, 20.0,
-                        ],
-                    ),
-                },
-            ],
-            ..Default::default()
-        };
-
-        let service = ElevationService::new(metadata, raster);
-
-        let result = service
-            .elevations_in_bbox(requested_bbox, Some(ResolutionHint::Highest))
-            .await
-            .unwrap();
-
-        assert_eq!(result.width, 4);
-        assert_eq!(result.height, 4);
-        assert_eq!(
-            result
-                .values
-                .iter()
-                .map(|el| el.unwrap().0)
-                .collect::<Vec<f64>>(),
-            vec![
-                20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0,
-                20.0, 20.0,
-            ]
+        let raster_read_window = RasterReadWindow::new(
+            WindowPlacement::new(0, 0),
+            RasterSize::new(4, 4),
+            RasterSize::new(2, 2),
         );
-    }
-
-    #[tokio::test]
-    async fn elevations_in_bbox_uses_lowest_resolution_hint() {
-        let requested_bbox = bbox(0.0, 0.0, 4.0, 4.0);
-
-        let low = dataset("low", "low.tif", requested_bbox, 2.0, -2.0, None);
-        let high = dataset("high", "high.tif", requested_bbox, 1.0, -1.0, None);
-
-        let metadata = FakeMetadataStorage {
-            datasets: vec![low, high],
-            should_fail: false,
-        };
-
-        let placement = WindowPlacement::new(0, 0);
-
-        let low_raster_read_window =
-            RasterReadWindow::new(placement, RasterSize::new(2, 2), RasterSize::new(2, 2));
-
-        let high_raster_read_window =
-            RasterReadWindow::new(placement, RasterSize::new(4, 4), RasterSize::new(2, 2));
 
         let raster = FakeRasterReader {
-            responses: vec![
-                FakeRasterReaderData {
-                    artifact_path: "low.tif".to_string(),
-                    window: low_raster_read_window,
-                    result: window_data(low_raster_read_window, vec![10.0, 10.0, 10.0, 10.0]),
-                },
-                FakeRasterReaderData {
-                    artifact_path: "high.tif".to_string(),
-                    window: high_raster_read_window,
-                    result: window_data(high_raster_read_window, vec![10.1, 10.2, 20.0, 20.0]),
-                },
-            ],
+            responses: vec![FakeRasterReaderData {
+                artifact_path: "a.tif".to_string(),
+                window: raster_read_window,
+                result: window_data(raster_read_window, vec![1.0, 2.0, 3.0, 4.0]),
+            }],
             ..Default::default()
         };
 
-        let service = ElevationService::new(metadata, raster);
+        let service = GeorasterService::new(metadata, raster);
 
         let result = service
-            .elevations_in_bbox(requested_bbox, Some(ResolutionHint::Lowest))
+            .raster_data_in_bbox(
+                requested_bbox,
+                Some(GeorasterSampling::OutputSize {
+                    width: 2,
+                    height: 2,
+                }),
+            )
             .await
             .unwrap();
 
         assert_eq!(result.width, 2);
         assert_eq!(result.height, 2);
         assert_eq!(
-            result
-                .values
-                .iter()
-                .map(|el| el.unwrap().0)
-                .collect::<Vec<f64>>(),
-            vec![10.1, 10.2, 20.0, 20.0]
+            result.values,
+            vec![
+                Some(RasterValue(1.0)),
+                Some(RasterValue(2.0)),
+                Some(RasterValue(3.0)),
+                Some(RasterValue(4.0)),
+            ]
         );
     }
 
     #[tokio::test]
-    async fn elevations_in_bbox_gets_data_from_two_datasets_with_different_resolution() {
+    async fn raster_data_in_bbox_gets_data_from_two_datasets_with_different_resolution() {
         let requested_bbox = bbox(3.0, 0.0, 6.0, 3.0);
 
         let left = dataset("left", "left.tif", bbox(0.0, 0.0, 4.0, 8.0), 1.0, 1.0, None);
@@ -1122,15 +991,17 @@ mod tests {
             should_fail: false,
         };
 
-        let placement = WindowPlacement::new(3, 5);
-        let source_size = RasterSize::new(1, 3);
-        let target_size = RasterSize::new(1, 3);
-        let left_raster_read_window = RasterReadWindow::new(placement, source_size, target_size);
+        let left_raster_read_window = RasterReadWindow::new(
+            WindowPlacement::new(3, 5),
+            RasterSize::new(1, 3),
+            RasterSize::new(1, 3),
+        );
 
-        let placement = WindowPlacement::new(0, 2);
-        let source_size = RasterSize::new(1, 2);
-        let target_size = RasterSize::new(2, 3);
-        let right_raster_read_window = RasterReadWindow::new(placement, source_size, target_size);
+        let right_raster_read_window = RasterReadWindow::new(
+            WindowPlacement::new(0, 2),
+            RasterSize::new(1, 2),
+            RasterSize::new(2, 3),
+        );
 
         let raster = FakeRasterReader {
             responses: vec![
@@ -1150,10 +1021,17 @@ mod tests {
             ],
             ..Default::default()
         };
-        let service = ElevationService::new(metadata, raster);
+
+        let service = GeorasterService::new(metadata, raster);
 
         let result = service
-            .elevations_in_bbox(requested_bbox, Some(ResolutionHint::Highest))
+            .raster_data_in_bbox(
+                requested_bbox,
+                Some(GeorasterSampling::Resolution {
+                    x_resolution: 1.0,
+                    y_resolution: 1.0,
+                }),
+            )
             .await
             .unwrap();
 
@@ -1163,7 +1041,7 @@ mod tests {
             result
                 .values
                 .iter()
-                .map(|el| { el.unwrap().0 })
+                .map(|el| el.unwrap().0)
                 .collect::<Vec<f64>>(),
             vec![10.0, 20.0, 20.0, 10.0, 20.0, 20.0, 10.0, 20.0, 20.0]
         );

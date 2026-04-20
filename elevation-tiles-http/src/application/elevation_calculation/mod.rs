@@ -1,4 +1,4 @@
-use elevation_domain::Elevation;
+use georaster_domain::RasterValue;
 
 mod mean;
 pub use mean::MeanElevationCalculationStrategy;
@@ -10,7 +10,7 @@ pub trait ElevationCalculationStrategy {
 
     fn new_state(&self) -> Self::State;
 
-    fn update(&self, state: &mut Self::State, value: Elevation);
+    fn update(&self, state: &mut Self::State, value: RasterValue);
 
-    fn finalize(&self, state: Self::State) -> Option<Elevation>;
+    fn finalize(&self, state: Self::State) -> Option<RasterValue>;
 }

@@ -1,17 +1,17 @@
 [package]
-name = "elevation-core"
+name = "georaster-core"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-elevation-domain = { path = "../elevation-domain" }
+georaster-domain = { path = "../georaster-domain" }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 gdal = "0.19.0"
 tempfile = "3.27.0"
 
 [dev-dependencies]
-elevation-adapters = { path = "../elevation-adapters" }
+georaster-adapters = { path = "../georaster-adapters" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 criterion = { version = "0.8.2", features = ["async_tokio"] }
 

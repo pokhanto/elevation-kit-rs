@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-elevation-adapters = { path = "../elevation-adapters" }
-elevation-domain = { path = "../elevation-domain" }
-elevation-core = { path = "../elevation-core" }
+georaster-adapters = { path = "../georaster-adapters" }
+georaster-domain = { path = "../georaster-domain" }
+georaster-core = { path = "../georaster-core" }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde = { workspace = true }
 tracing = { workspace = true }

@@ -1,10 +1,10 @@
 //! GDAL-backed raster reader.
 
-use elevation_domain::{
+use gdal::Dataset;
+use georaster_domain::{
     ArtifactLocator, ArtifactResolver, RasterReadWindow, RasterReader, RasterReaderError,
     RasterWindowData, ResolvedArtifactPath,
 };
-use gdal::Dataset;
 
 const RASTER_BAND_INDEX_WITH_DATA: usize = 1;
 
@@ -122,7 +122,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use elevation_domain::{
+    use georaster_domain::{
         ArtifactLocator, ArtifactResolveError, RasterReadWindow, RasterSize, WindowPlacement,
     };
     use tempfile::tempdir;

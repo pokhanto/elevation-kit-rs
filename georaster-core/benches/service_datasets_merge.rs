@@ -3,11 +3,11 @@
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use elevation_core::ElevationService;
-use elevation_domain::{
+use georaster_core::{GeorasterSampling, GeorasterService};
+use georaster_domain::{
     ArtifactLocator, BlockSize, Bounds, Crs, DatasetMetadata, GeoTransform, MetadataStorage,
     MetadataStorageError, RasterMetadata, RasterReadWindow, RasterReader, RasterReaderError,
-    RasterWindowData, ResolutionHint,
+    RasterWindowData,
 };
 use tokio::runtime::Runtime;
 
@@ -16,9 +16,9 @@ fn bench_elevations_in_bbox(c: &mut Criterion) {
     // bounds to request, changing will affect result
     let bbox = Bounds::try_new(30.0, 50.0, 30.3, 50.3).unwrap();
     // resolution hint to request, changing will affect result
-    let resolution_hint = ResolutionHint::Degrees {
-        lon_resolution: 0.0005,
-        lat_resolution: 0.0005,
+    let sampling = GeorasterSampling::Resolution {
+        x_resolution: 0.0005,
+        y_resolution: 0.0005,
     };
 
     let total_datasets = 60;
@@ -31,7 +31,7 @@ fn bench_elevations_in_bbox(c: &mut Criterion) {
         let datasets = make_datasets(total_datasets, overlapping_datasets, bbox);
         let metadata = InMemoryMetadataStorage::new(datasets);
         let raster = FakeRasterReader;
-        let service = ElevationService::new(metadata, raster);
+        let service = GeorasterService::new(metadata, raster);
 
         group.bench_with_input(
             BenchmarkId::new(
@@ -43,7 +43,7 @@ fn bench_elevations_in_bbox(c: &mut Criterion) {
                 b.iter(|| {
                     let result = runtime.block_on(async {
                         service
-                            .elevations_in_bbox(bbox, Some(resolution_hint))
+                            .raster_data_in_bbox(bbox, Some(sampling))
                             .await
                             .unwrap()
                     });

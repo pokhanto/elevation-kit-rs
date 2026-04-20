@@ -123,17 +123,18 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elevation_domain::Elevation;
+    use georaster_core::GeorasterServiceError;
+    use georaster_domain::RasterValue;
     use std::sync::{Arc, Mutex};
 
     #[derive(Clone, Debug)]
     struct FakeElevationProvider {
-        result: Result<Option<Elevation>, ElevationProviderError>,
+        result: Result<Option<RasterValue>, ElevationProviderError>,
         calls: Arc<Mutex<Vec<(f64, f64)>>>,
     }
 
     impl FakeElevationProvider {
-        fn ok(value: Option<Elevation>) -> Self {
+        fn ok(value: Option<RasterValue>) -> Self {
             Self {
                 result: Ok(value),
                 calls: Arc::new(Mutex::new(Vec::new())),
@@ -157,7 +158,7 @@ mod tests {
             &self,
             lon: f64,
             lat: f64,
-        ) -> Result<Option<Elevation>, ElevationProviderError> {
+        ) -> Result<Option<RasterValue>, ElevationProviderError> {
             self.calls.lock().unwrap().push((lon, lat));
             self.result.clone()
         }
@@ -276,7 +277,7 @@ mod tests {
 
     #[tokio::test]
     async fn sample_point_returns_sampled_point_with_elevation() {
-        let provider = FakeElevationProvider::ok(Some(Elevation(123.0)));
+        let provider = FakeElevationProvider::ok(Some(RasterValue(123.0)));
         let service = ProfileService::new(provider, 50);
 
         let result = service.sample_point(34.4, 48.5).await.unwrap();
@@ -311,7 +312,7 @@ mod tests {
     #[tokio::test]
     async fn sample_point_maps_provider_error() {
         let provider = FakeElevationProvider::err(ElevationProviderError::Elevation(
-            elevation_core::ElevationServiceError::MetadataLoad,
+            GeorasterServiceError::MetadataLoad,
         ));
         let service = ProfileService::new(provider, 500);
 
@@ -325,7 +326,7 @@ mod tests {
 
     #[tokio::test]
     async fn sample_point_passes_coordinates_to_provider_unchanged() {
-        let provider = FakeElevationProvider::ok(Some(Elevation(1.0)));
+        let provider = FakeElevationProvider::ok(Some(RasterValue(1.0)));
         let provider_for_assert = provider.clone();
         let service = ProfileService::new(provider, 500);
 

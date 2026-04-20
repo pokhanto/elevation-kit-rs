@@ -1,6 +1,6 @@
 //! Filesystem-backed artifact storage.
 
-use elevation_domain::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
+use georaster_domain::{ArtifactLocator, ArtifactStorage, ArtifactStorageError};
 use std::path::{Path, PathBuf};
 use tokio::{
     fs::{self, OpenOptions},

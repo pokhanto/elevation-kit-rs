@@ -1,9 +1,9 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::Client;
 use clap::{Parser, ValueEnum};
-use elevation_adapters::{FsArtifactStorage, FsMetadataStorage, S3ArtifactStorage};
-use elevation_core::IngestService;
-use elevation_domain::Crs;
+use georaster_adapters::{FsArtifactStorage, FsMetadataStorage, S3ArtifactStorage};
+use georaster_core::IngestService;
+use georaster_domain::Crs;
 use std::path::PathBuf;
 
 mod telemetry;

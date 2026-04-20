@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use elevation_domain::{DatasetMetadata, MetadataStorage, MetadataStorageError};
+use georaster_domain::{DatasetMetadata, MetadataStorage, MetadataStorageError};
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs::{self, File, OpenOptions},
@@ -184,7 +184,7 @@ impl MetadataStorage for FsMetadataStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elevation_domain::{
+    use georaster_domain::{
         ArtifactLocator, BlockSize, Bounds, Crs, DatasetMetadata, GeoTransform, MetadataStorage,
         MetadataStorageError, RasterMetadata,
     };
