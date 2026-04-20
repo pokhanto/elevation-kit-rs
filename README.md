@@ -189,3 +189,7 @@ curl -N "http://127.0.0.1:3000/tiles/stream?min_lon=36.20&min_lat=49.96&max_lon=
 - Consider using primitives from [geo](https://docs.rs/geo/latest/geo/) library
 - Replace intersection processing with proper grid merge algorithm in core
 - Implement raster reader without GDAL
+
+## License
+
+Licensed under the MIT License.
