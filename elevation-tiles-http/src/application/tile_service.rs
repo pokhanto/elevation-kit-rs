@@ -1,8 +1,9 @@
 //! Tile service for resolving H3 tiles and their aggregated elevations.
 
-use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
 use futures::Stream;
 use geo::{BoundingRect, Contains, Intersects, Point, Polygon};
+use georaster_core::GeorasterSampling;
+use georaster_domain::{Bounds, RasterGrid};
 use h3o::{
     Resolution,
     geom::{ContainmentMode, TilerBuilder},
@@ -15,17 +16,15 @@ use crate::{
     application::{
         elevation_calculation::ElevationCalculationStrategy, elevation_provider::ElevationProvider,
     },
-    domain::{ElevationTile, Tile},
+    domain::{Elevation, ElevationTile, Tile},
 };
 
 /// Controls split of requested bounding box to smaller chunks.
 const MAX_CELLS_PER_CHUNK: usize = 25000;
 
-// TODO: extract this mapping into config/service.
-// Or, even better - rework to not rely on specific resolution
-const RESOLUTION_HINT: ResolutionHint = ResolutionHint::Degrees {
-    lon_resolution: 0.005,
-    lat_resolution: 0.005,
+const GEORASTER_SAMPLING: GeorasterSampling = GeorasterSampling::Resolution {
+    x_resolution: 0.005,
+    y_resolution: 0.005,
 };
 
 /// Errors returned by [`TileService`].
@@ -96,9 +95,9 @@ where
             TileServiceError::UnknownTile
         })?;
 
-        let elevations = self
+        let elevation_grid = self
             .elevation_provider
-            .elevations_in_bbox(tile_bounding_rect.into(), Some(ResolutionHint::Highest))
+            .elevations_in_bbox(tile_bounding_rect.into(), Some(GEORASTER_SAMPLING))
             .await
             .map_err(|err| {
                 tracing::debug!(error = ?err, "failed to get elevations for tile bbox");
@@ -106,9 +105,10 @@ where
             })?;
 
         let mut calculation_state = calculation_strategy.new_state();
+        let elevation_data = elevation_grid.band(1).ok_or(TileServiceError::Elevation)?;
 
-        for value in elevations.values.into_iter().flatten() {
-            calculation_strategy.update(&mut calculation_state, value);
+        for value in elevation_data.data().iter() {
+            calculation_strategy.update(&mut calculation_state, Elevation(*value));
         }
 
         let elevation_tile =
@@ -159,7 +159,7 @@ where
         let tile_ids = get_tile_ids_for_bbox(bbox, zoom_level)?;
 
         // split requested bbox in chunks to avoid loading whole area at once
-        let chunks = split_bbox_into_chunks(bbox, RESOLUTION_HINT, self.max_cells_per_chunk)?;
+        let chunks = split_bbox_into_chunks(bbox, GEORASTER_SAMPLING, self.max_cells_per_chunk)?;
 
         tracing::info!(chunks_count = chunks.len(), "got bbox chunks count");
 
@@ -271,7 +271,7 @@ where
 
                 // fetch elevations only for tiles still missing from cache
                 let chunk_elevations = match elevation_provider
-                    .elevations_in_bbox(chunk.bounds, Some(RESOLUTION_HINT))
+                    .elevations_in_bbox(chunk.bounds, Some(GEORASTER_SAMPLING))
                     .await
                 {
                     Ok(v) => v,
@@ -289,6 +289,7 @@ where
 
                 update_selected_tile_states_from_chunk(
                     &chunk_elevations,
+                    chunk.bounds,
                     uncached_tile_ids.iter().map(String::as_str),
                     &mut tile_states,
                     &calcualtion_strategy,
@@ -397,22 +398,21 @@ pub fn get_tile_ids_for_bbox(
 
 /// Updates only selected tiles from one chunk.
 fn update_selected_tile_states_from_chunk<'a, S>(
-    elevations: &BboxElevations,
+    elevations: &RasterGrid,
+    bbox: Bounds,
     tile_ids: impl IntoIterator<Item = &'a str>,
     tile_states: &mut HashMap<String, TileAggregationState<S::State>>,
     strategy: &S,
 ) where
     S: ElevationCalculationStrategy,
 {
-    if elevations.width == 0 || elevations.height == 0 {
+    if elevations.width() == 0 || elevations.height() == 0 {
         return;
     }
 
     // geographic size of one cell of grid in returned elevation grid
-    let lon_step =
-        (elevations.bbox.max_lon() - elevations.bbox.min_lon()) / elevations.width as f64;
-    let lat_step =
-        (elevations.bbox.max_lat() - elevations.bbox.min_lat()) / elevations.height as f64;
+    let lon_step = (bbox.max_lon() - bbox.min_lon()) / elevations.width() as f64;
+    let lat_step = (bbox.max_lat() - bbox.min_lat()) / elevations.height() as f64;
 
     // update only tiles that affected by this chunk
     for tile_id in tile_ids {
@@ -422,27 +422,23 @@ fn update_selected_tile_states_from_chunk<'a, S>(
 
         // find overlap between tile bounds and current chunk bbox
         // if there is no overlap - skip
-        let overlap = match state.bounds.intersection(&elevations.bbox) {
+        let overlap = match state.bounds.intersection(&bbox) {
             Some(v) => v,
             None => continue,
         };
 
         // map overlap bbox into column range of chunk elevation grid
-        let start_col = (((overlap.min_lon() - elevations.bbox.min_lon()) / lon_step).floor()
-            as isize)
-            .max(0) as usize;
-        let end_col_exclusive = (((overlap.max_lon() - elevations.bbox.min_lon()) / lon_step).ceil()
-            as isize)
-            .min(elevations.width as isize)
+        let start_col =
+            (((overlap.min_lon() - bbox.min_lon()) / lon_step).floor() as isize).max(0) as usize;
+        let end_col_exclusive = (((overlap.max_lon() - bbox.min_lon()) / lon_step).ceil() as isize)
+            .min(elevations.width() as isize)
             .max(0) as usize;
 
         // map overlap bbox into row range of chunk elevation grid
-        let start_row = (((elevations.bbox.max_lat() - overlap.max_lat()) / lat_step).floor()
-            as isize)
-            .max(0) as usize;
-        let end_row_exclusive = (((elevations.bbox.max_lat() - overlap.min_lat()) / lat_step).ceil()
-            as isize)
-            .min(elevations.height as isize)
+        let start_row =
+            (((bbox.max_lat() - overlap.max_lat()) / lat_step).floor() as isize).max(0) as usize;
+        let end_row_exclusive = (((bbox.max_lat() - overlap.min_lat()) / lat_step).ceil() as isize)
+            .min(elevations.height() as isize)
             .max(0) as usize;
 
         // skip empty target window
@@ -452,16 +448,16 @@ fn update_selected_tile_states_from_chunk<'a, S>(
 
         for row in start_row..end_row_exclusive {
             // calculate latitude of cell center for current row
-            let lat = elevations.bbox.max_lat() - (row as f64 + 0.5) * lat_step;
+            let lat = bbox.max_lat() - (row as f64 + 0.5) * lat_step;
 
             for col in start_col..end_col_exclusive {
-                let idx = row * elevations.width + col;
-                let Some(value) = elevations.values[idx] else {
+                let idx = row * elevations.width() + col;
+                let Some(value) = elevations.band(1).map(|band| band.data()[idx]) else {
                     continue;
                 };
 
                 // calculate longitude of cell center for current column
-                let lon = elevations.bbox.min_lon() + (col as f64 + 0.5) * lon_step;
+                let lon = bbox.min_lon() + (col as f64 + 0.5) * lon_step;
 
                 // cheap rectangular prefilter before exact polygon check
                 if !state.bounds.contains_point(lon, lat) {
@@ -472,7 +468,7 @@ fn update_selected_tile_states_from_chunk<'a, S>(
 
                 // exact containment check against H3 tile polygon
                 if state.polygon.contains(&point) {
-                    strategy.update(&mut state.calculation_state, value);
+                    strategy.update(&mut state.calculation_state, Elevation(value));
                 }
             }
         }
@@ -482,14 +478,14 @@ fn update_selected_tile_states_from_chunk<'a, S>(
 /// Splits requested bbox in chunks.
 fn split_bbox_into_chunks(
     bbox: Bounds,
-    resolution_hint: ResolutionHint,
+    sampling: GeorasterSampling,
     max_cells_per_chunk: usize,
 ) -> Result<Vec<Bounds>, TileServiceError> {
-    let (lon_resolution, lat_resolution) = match resolution_hint {
-        ResolutionHint::Degrees {
-            lon_resolution,
-            lat_resolution,
-        } => (lon_resolution, lat_resolution),
+    let (lon_resolution, lat_resolution) = match sampling {
+        GeorasterSampling::Resolution {
+            x_resolution,
+            y_resolution,
+        } => (x_resolution, y_resolution),
         _ => return Err(TileServiceError::ChunkResolution),
     };
 

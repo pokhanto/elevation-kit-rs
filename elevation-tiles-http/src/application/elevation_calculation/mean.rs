@@ -1,6 +1,4 @@
-use elevation_domain::Elevation;
-
-use crate::application::elevation_calculation::ElevationCalculationStrategy;
+use crate::{application::elevation_calculation::ElevationCalculationStrategy, domain::Elevation};
 
 #[derive(Debug, Clone, Copy)]
 pub struct MeanElevationCalculationStrategy;

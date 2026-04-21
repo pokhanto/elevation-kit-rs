@@ -1,7 +1,7 @@
-use elevation_domain::Elevation;
-
 mod mean;
 pub use mean::MeanElevationCalculationStrategy;
+
+use crate::domain::Elevation;
 
 pub trait ElevationCalculationStrategy {
     type State;

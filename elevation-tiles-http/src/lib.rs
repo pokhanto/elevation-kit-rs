@@ -1,7 +1,7 @@
 //! HTTP server wiring for tile endpoints.
 use axum::Router;
-use elevation_adapters::{FsArtifactResolver, FsMetadataStorage, GdalRasterReader};
-use elevation_core::ElevationService;
+use georaster_adapters::{FsArtifactResolver, FsMetadataStorage, GdalRasterReader};
+use georaster_core::GeorasterService;
 use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::TcpListener;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -16,7 +16,7 @@ mod routes;
 pub use error::AppError;
 
 pub type AppElevationService =
-    ElevationService<FsMetadataStorage, GdalRasterReader<FsArtifactResolver>>;
+    GeorasterService<FsMetadataStorage, GdalRasterReader<FsArtifactResolver>>;
 
 /// Shared application state.
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ pub async fn run(
 
     let metadata_storage = FsMetadataStorage::new(metadata_storage_dir, metadata_registry_name);
     let raster_reader = GdalRasterReader::new(FsArtifactResolver);
-    let elevation_service = ElevationService::new(metadata_storage, raster_reader);
+    let elevation_service = GeorasterService::new(metadata_storage, raster_reader);
 
     let state = AppState {
         tile_service: TileService::new(elevation_service, tile_cache_max_capacity),

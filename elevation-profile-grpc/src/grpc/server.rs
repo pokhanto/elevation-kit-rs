@@ -87,7 +87,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use elevation_domain::Elevation;
+    use georaster_core::GeorasterServiceError;
+    use georaster_domain::{RasterPoint, RasterPointBand};
     use tokio_stream::StreamExt;
     use tonic::Code;
 
@@ -97,7 +98,7 @@ mod tests {
     };
     #[derive(Clone, Debug)]
     struct FakeElevationProvider {
-        result: Result<Option<Elevation>, ElevationProviderError>,
+        result: Result<Option<RasterPoint>, ElevationProviderError>,
     }
 
     impl ElevationProvider for FakeElevationProvider {
@@ -105,7 +106,7 @@ mod tests {
             &self,
             _lon: f64,
             _lat: f64,
-        ) -> Result<Option<Elevation>, ElevationProviderError> {
+        ) -> Result<Option<RasterPoint>, ElevationProviderError> {
             self.result.clone()
         }
     }
@@ -128,8 +129,9 @@ mod tests {
     #[tokio::test]
     async fn streams_successful_responses() {
         let provider = FakeElevationProvider {
-            result: Ok(Some(Elevation(123.0))),
+            result: Ok(Some(RasterPoint::new(vec![RasterPointBand::new(1, 123.0)]))),
         };
+
         let profile_service = Arc::new(ProfileService::new(provider, 100));
         let server = ApiServer::new(profile_service, 10000.0);
 
@@ -150,7 +152,7 @@ mod tests {
     async fn stream_returns_internal_when_provider_fails() {
         let provider = FakeElevationProvider {
             result: Err(ElevationProviderError::Elevation(
-                elevation_core::ElevationServiceError::MetadataLoad,
+                GeorasterServiceError::MetadataLoad,
             )),
         };
         let profile_service = Arc::new(ProfileService::new(provider, 100));
@@ -171,7 +173,7 @@ mod tests {
     #[tokio::test]
     async fn streamed_response_contains_point_data() {
         let provider = FakeElevationProvider {
-            result: Ok(Some(Elevation(50.0))),
+            result: Ok(Some(RasterPoint::new(vec![RasterPointBand::new(1, 50.0)]))),
         };
         let profile_service = Arc::new(ProfileService::new(provider, 100));
         let server = ApiServer::new(profile_service, 10000.0);

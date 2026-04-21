@@ -1,6 +1,6 @@
 //! Tile domain model.
 
-use elevation_domain::Elevation;
+use crate::domain::Elevation;
 
 /// Tile with aggregated elevation data.
 #[derive(Debug, Clone)]

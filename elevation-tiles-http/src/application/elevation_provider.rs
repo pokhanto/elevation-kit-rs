@@ -2,9 +2,9 @@
 //!
 //! Main purpose is to keep high level services testable by allowing
 //! other providers like fakes or mocks.
-use elevation_adapters::{FsArtifactResolver, FsMetadataStorage, GdalRasterReader};
-use elevation_core::{ElevationService, ElevationServiceError};
-use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
+use georaster_adapters::{FsArtifactResolver, FsMetadataStorage, GdalRasterReader};
+use georaster_core::{GeorasterSampling, GeorasterService, GeorasterServiceError};
+use georaster_domain::{Bounds, RasterGrid, RasterRepresentation};
 
 /// Error returned by [`ElevationProvider`].
 ///
@@ -13,7 +13,7 @@ use elevation_domain::{BboxElevations, Bounds, ResolutionHint};
 pub enum ElevationProviderError {
     /// Elevation service failed.
     #[error("Elevation service error")]
-    Elevation(#[from] ElevationServiceError),
+    Elevation(#[from] GeorasterServiceError),
 }
 
 /// Provides elevation values for bounding box.
@@ -21,25 +21,32 @@ pub trait ElevationProvider {
     /// Returns elevations for given bounding box.
     ///
     /// For detailed behavior see
-    /// [`elevation_core::ElevationService::elevations_in_bbox`].
+    /// [`georaster_core::ElevationService::elevations_in_bbox`].
     fn elevations_in_bbox(
         &self,
         bbox: Bounds,
-        hint: Option<ResolutionHint>,
-    ) -> impl Future<Output = Result<BboxElevations, ElevationProviderError>> + Send;
+        sampling: Option<GeorasterSampling>,
+    ) -> impl Future<Output = Result<RasterGrid, ElevationProviderError>> + Send;
 }
 
 /// Production [`ElevationProvider`] implementation backed by
 /// [`ElevationService<FsMetadataStorage, GdalRasterReader>`].
 impl ElevationProvider
-    for ElevationService<FsMetadataStorage, GdalRasterReader<FsArtifactResolver>>
+    for GeorasterService<FsMetadataStorage, GdalRasterReader<FsArtifactResolver>>
 {
     async fn elevations_in_bbox(
         &self,
         bbox: Bounds,
-        hint: Option<ResolutionHint>,
-    ) -> Result<BboxElevations, ElevationProviderError> {
-        let elevations = ElevationService::elevations_in_bbox(self, bbox, hint).await?;
+        sampling: Option<GeorasterSampling>,
+    ) -> Result<RasterGrid, ElevationProviderError> {
+        let elevations = GeorasterService::raster_data_in_bbox(
+            self,
+            bbox,
+            sampling,
+            georaster_domain::BandSelection::First,
+            RasterRepresentation::Grayscale,
+        )
+        .await?;
         Ok(elevations)
     }
 }

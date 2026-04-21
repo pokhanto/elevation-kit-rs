@@ -1,15 +1,15 @@
-use elevation_adapters::{FsMetadataStorage, GdalRasterReader, GdalS3ArtifactResolver};
-use elevation_core::ElevationService;
 use elevation_profile_grpc::{
     Config, ProfileService,
     grpc::{ApiServer, pb},
     telemetry,
 };
+use georaster_adapters::{FsMetadataStorage, GdalRasterReader, GdalS3ArtifactResolver};
+use georaster_core::GeorasterService;
 use std::sync::Arc;
 use tonic::transport::Server;
 
 pub type AppElevationService =
-    ElevationService<FsMetadataStorage, GdalRasterReader<GdalS3ArtifactResolver>>;
+    GeorasterService<FsMetadataStorage, GdalRasterReader<GdalS3ArtifactResolver>>;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metadata_storage =
         FsMetadataStorage::new(config.metadata_dir, config.metadata_registry_name);
     let raster_reader = GdalRasterReader::new(GdalS3ArtifactResolver);
-    let elevation_service = ElevationService::new(metadata_storage, raster_reader);
+    let elevation_service = GeorasterService::new(metadata_storage, raster_reader);
 
     let profile_service = Arc::new(ProfileService::new(elevation_service, config.max_samples));
     let api_server = ApiServer::new(Arc::clone(&profile_service), config.sample_step_meters);
