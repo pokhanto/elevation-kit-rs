@@ -1,0 +1,12 @@
+services:
+  elevation-api:
+    image: elevation-api:latest
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      FILE_TO_INGEST: ${FILE_TO_INGEST}
+    volumes:
+      - ../input:/app/input:ro
+      - ../data:/app/data

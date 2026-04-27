@@ -1,4 +1,4 @@
-use crate::domain::{Coord, CoordWithElevation, Elevation};
+use crate::domain::{Coordinate, CoordinateWithElevation, Elevation};
 
 const RASTER_BAND_INDEX_FOR_ELEVATION: usize = 1;
 
@@ -36,18 +36,20 @@ where
     ///
     /// If a point cannot be resolved or requested elevation band is missing,
     /// returned item contains `None` elevation.
-    pub async fn elevations_at_point(
+    pub async fn elevations_at_points(
         &self,
-        coordinates: &[Coord],
-    ) -> Result<Vec<CoordWithElevation>, ElevationServiceError> {
+        coordinates: &[Coordinate],
+    ) -> Result<Vec<CoordinateWithElevation>, ElevationServiceError> {
         let mut coordinates_with_elevations = Vec::with_capacity(coordinates.len());
 
         for coordinate in coordinates {
-            let Coord { lon, lat } = *coordinate;
+            let Coordinate { lon, lat } = *coordinate;
+
             let raster_point = self
                 .elevation_provider
                 .elevation_at_point(lon.0, lat.0)
                 .await?;
+
             let elevation = raster_point
                 // TODO: DX is not great here
                 .and_then(|rp| {
@@ -55,7 +57,7 @@ where
                         .map(|rb| Elevation(rb.value()))
                 });
 
-            coordinates_with_elevations.push(CoordWithElevation {
+            coordinates_with_elevations.push(CoordinateWithElevation {
                 lon,
                 lat,
                 elevation,
@@ -72,7 +74,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use crate::application::elevation_provider::{ElevationProvider, ElevationProviderError};
-    use crate::domain::{Coord, CoordWithElevation, Elevation, Latitude, Longitude};
+    use crate::domain::{Coordinate, CoordinateWithElevation, Elevation, Latitude, Longitude};
     use georaster_core::GeorasterServiceError;
     use georaster_domain::{RasterPoint, RasterPointBand};
 
@@ -114,8 +116,8 @@ mod tests {
         }
     }
 
-    fn coord(lat: f64, lon: f64) -> Coord {
-        Coord {
+    fn coord(lat: f64, lon: f64) -> Coordinate {
+        Coordinate {
             lat: Latitude(lat),
             lon: Longitude(lon),
         }
@@ -126,7 +128,7 @@ mod tests {
         let provider = FakeElevationProvider::new(vec![]);
         let service = ElevationService::new(provider.clone());
 
-        let result = service.elevations_at_point(&[]).await.unwrap();
+        let result = service.elevations_at_points(&[]).await.unwrap();
 
         assert!(result.is_empty());
         assert!(provider.calls().is_empty());
@@ -148,17 +150,17 @@ mod tests {
         ]);
         let service = ElevationService::new(provider.clone());
 
-        let result = service.elevations_at_point(&coordinates).await.unwrap();
+        let result = service.elevations_at_points(&coordinates).await.unwrap();
 
         assert_eq!(
             result,
             vec![
-                CoordWithElevation {
+                CoordinateWithElevation {
                     lat: Latitude(50.4501),
                     lon: Longitude(30.5234),
                     elevation: Some(Elevation(123.0)),
                 },
-                CoordWithElevation {
+                CoordinateWithElevation {
                     lat: Latitude(50.4510),
                     lon: Longitude(30.5240),
                     elevation: Some(Elevation(456.0)),
@@ -179,11 +181,11 @@ mod tests {
         let provider = FakeElevationProvider::new(vec![((30.5234, 50.4501), Ok(None))]);
         let service = ElevationService::new(provider);
 
-        let result = service.elevations_at_point(&coordinates).await.unwrap();
+        let result = service.elevations_at_points(&coordinates).await.unwrap();
 
         assert_eq!(
             result,
-            vec![CoordWithElevation {
+            vec![CoordinateWithElevation {
                 lat: Latitude(50.4501),
                 lon: Longitude(30.5234),
                 elevation: None,
@@ -201,11 +203,11 @@ mod tests {
         )]);
         let service = ElevationService::new(provider);
 
-        let result = service.elevations_at_point(&coordinates).await.unwrap();
+        let result = service.elevations_at_points(&coordinates).await.unwrap();
 
         assert_eq!(
             result,
-            vec![CoordWithElevation {
+            vec![CoordinateWithElevation {
                 lat: Latitude(50.4501),
                 lon: Longitude(30.5234),
                 elevation: None,
@@ -225,7 +227,7 @@ mod tests {
         )]);
         let service = ElevationService::new(provider);
 
-        let result = service.elevations_at_point(&coordinates).await;
+        let result = service.elevations_at_points(&coordinates).await;
 
         assert!(matches!(
             result.unwrap_err(),

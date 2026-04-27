@@ -1,4 +1,5 @@
 use std::{net::TcpListener, path::Path};
+use tempfile::TempDir;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -6,6 +7,8 @@ pub struct TestApp {
     pub address: String,
     pub task: JoinHandle<()>,
     pub client: reqwest::Client,
+    // to keep temp dir alive
+    _storage_dir: TempDir,
 }
 
 impl TestApp {
@@ -47,6 +50,7 @@ pub async fn spawn_app(fixture_geotiff: impl AsRef<Path>) -> TestApp {
         address: format!("http://127.0.0.1:{port}"),
         task,
         client: reqwest::Client::new(),
+        _storage_dir: storage_dir,
     };
 
     wait_until_ready(&app).await;

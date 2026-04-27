@@ -1,3 +1,4 @@
 mod coordinate;
 
-pub use coordinate::{Coord, CoordWithElevation, Elevation, Latitude, Longitude};
+#[allow(unused_imports)]
+pub use coordinate::{Coordinate, CoordinateWithElevation, Elevation, Latitude, Longitude};

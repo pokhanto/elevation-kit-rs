@@ -42,13 +42,13 @@ impl<'de> Deserialize<'de> for Longitude {
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
-pub struct Coord {
+pub struct Coordinate {
     pub lat: Latitude,
     pub lon: Longitude,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
-pub struct CoordWithElevation {
+pub struct CoordinateWithElevation {
     pub lat: Latitude,
     pub lon: Longitude,
     pub elevation: Option<Elevation>,
@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn coord_deserializes_valid_values() {
-        let coord: Coord = serde_json::from_str(
+        let coord: Coordinate = serde_json::from_str(
             r#"{
                 "lat": 50.4501,
                 "lon": 30.5234
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn coord_rejects_invalid_latitude() {
-        let err = serde_json::from_str::<Coord>(
+        let err = serde_json::from_str::<Coordinate>(
             r#"{
                 "lat": 100.0,
                 "lon": 30.5234
@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn coord_rejects_invalid_longitude() {
-        let err = serde_json::from_str::<Coord>(
+        let err = serde_json::from_str::<Coordinate>(
             r#"{
                 "lat": 50.4501,
                 "lon": 200.0

@@ -4,7 +4,7 @@ use axum::{Json, Router, extract::State, routing::post};
 
 use crate::{
     AppError, AppState,
-    domain::{Coord, CoordWithElevation},
+    domain::{Coordinate, CoordinateWithElevation},
 };
 
 pub fn router() -> Router<AppState> {
@@ -14,14 +14,14 @@ pub fn router() -> Router<AppState> {
 #[tracing::instrument(skip(state))]
 async fn get_elevations(
     State(state): State<AppState>,
-    Json(payload): Json<Vec<Coord>>,
-) -> Result<Json<Vec<CoordWithElevation>>, AppError> {
-    tracing::info!("starting handling get elevations");
+    Json(payload): Json<Vec<Coordinate>>,
+) -> Result<Json<Vec<CoordinateWithElevation>>, AppError> {
+    tracing::info!("starting handling elevations at requested points");
 
-    let coord_with_elevations = state
+    let coords_with_elevations = state
         .elevation_service
-        .elevations_at_point(&payload)
+        .elevations_at_points(&payload)
         .await?;
 
-    Ok(Json(coord_with_elevations))
+    Ok(Json(coords_with_elevations))
 }
